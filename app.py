@@ -17,6 +17,11 @@ def init_supabase() -> Client:
 
 @st.cache_resource
 def load_nlp_models():
+    # Automatically download models if not present in the cloud container
+    for model_name in ["pl_core_news_sm", "en_core_web_sm"]:
+        if not spacy.util.is_package(model_name):
+            spacy.cli.download(model_name)
+            
     pl_nlp = spacy.load("pl_core_news_sm")
     en_nlp = spacy.load("en_core_web_sm")
     return {"pl": pl_nlp, "en": en_nlp}
