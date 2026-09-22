@@ -17,17 +17,16 @@ def init_supabase() -> Client:
 
 @st.cache_resource
 def load_nlp_models():
-    # Automatically download models if not present in the cloud container
-    for model_name in ["pl_core_news_sm", "en_core_web_sm"]:
-        if not spacy.util.is_package(model_name):
-            spacy.cli.download(model_name)
-            
+    # Pobieranie zostało usunięte z wnętrza funkcji – modele zainstalują się z requirements.txt
     pl_nlp = spacy.load("pl_core_news_sm")
     en_nlp = spacy.load("en_core_web_sm")
     return {"pl": pl_nlp, "en": en_nlp}
 
-supabase = init_supabase()
-nlp_models = load_nlp_models()
+try:
+    supabase = init_supabase()
+    nlp_models = load_nlp_models()
+except Exception as e:
+    st.error(f"Błąd inicjalizacji bazy danych lub modeli: {e}")
 
 # --- 2. TEXT CLEANER AND NORMALIZER ---
 def clean_and_normalize(text: str) -> str:
