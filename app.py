@@ -14,19 +14,21 @@ def init_supabase() -> Client:
     url = st.secrets["SUPABASE_URL"]
     key = st.secrets["SUPABASE_KEY"]
     return create_client(url, key)
-
 @st.cache_resource
 def load_nlp_models():
-    # Pobieranie zostało usunięte z wnętrza funkcji – modele zainstalują się z requirements.txt
-    pl_nlp = spacy.load("pl_core_news_sm")
-    en_nlp = spacy.load("en_core_web_sm")
-    return {"pl": pl_nlp, "en": en_nlp}
+    import subprocess
+    import sys
 
-try:
-    supabase = init_supabase()
-    nlp_models = load_nlp_models()
-except Exception as e:
-    st.error(f"Błąd inicjalizacji bazy danych lub modeli: {e}")
+    # Pobieranie modeli za pomocą subprocess (omija blokady uprawnień pip w kontenerze)
+    models = {"pl": "pl_core_news_sm", "en": "en_core_web_sm"}
+    loaded_models = {}
+
+    for lang, model_name in models.items():
+        if not spacy.util.is_package(model_name):
+            subprocess.run([sys.executable, "-m", "spacy", "download", model_name], check=True)
+        loaded_models[lang] = spacy.load(model_name)
+
+    return loaded_models
 
 # --- 2. TEXT CLEANER AND NORMALIZER ---
 def clean_and_normalize(text: str) -> str:
