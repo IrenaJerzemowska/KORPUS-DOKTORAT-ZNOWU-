@@ -154,6 +154,8 @@ PL_TRANSLATIONS.update({
 })
 
 _TRANSLATION_PATTERNS = [
+    (re.compile(r"^spaCy could not initialize \((.*)\)\. Using regex tokenization without POS tags for this run\. Check the pinned compatible dependencies in requirements\.txt\.$"), r"Nie udało się uruchomić spaCy (\1). Tymczasowo używana jest tokenizacja bez oznaczania części mowy. Sprawdź zgodność pakietów w pliku requirements.txt."),
+    (re.compile(r"^spaCy model '(.+)' could not load \((.*)\)\. Using regex tokenization without POS tags for this run\. Check the pinned compatible dependencies in requirements\.txt\.$"), r"Nie udało się wczytać modelu spaCy „\1” (\2). Tymczasowo używana jest tokenizacja bez oznaczania części mowy. Sprawdź zgodność pakietów w pliku requirements.txt."),
     (re.compile(r"^Could not draw the trend chart for this selection: (.*)$"), r"Nie udało się narysować wykresu trendu dla tego wyboru: \1"),
     (re.compile(r"^No data points to plot yet\. Check that the chosen terms occur in the selected period\.$"), "Brak punktów do wykreślenia. Sprawdź, czy wybrane terminy występują w tym okresie."),
     (re.compile(r"^Most frequent words$"), "Najczęstsze wyrazy"),
