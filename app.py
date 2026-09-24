@@ -364,36 +364,55 @@ DEFAULT_ANGLICISMS = [
     ("show", "media"), ("hit", "media"), ("hit", "music"), ("remix", "music"), ("cover", "music"),
 ]
 
-@st.cache_data(ttl=600, show_spinner=False)
 def ensure_seed_data():
-    """Seed default metadata schema, lexicon and anglicisms. Silent and idempotent:
-    uses upsert on the unique columns so re-runs and duplicate seeds never error."""
+    """Insert only missing defaults. Avoid ON CONFLICT because legacy tables may
+    not have the matching unique constraints. Existing data is preserved."""
+    changed = False
+
+    def seed_row(table, row):
+        nonlocal changed
+        try:
+            result = supabase.table(table).insert(row).execute()
+            changed = changed or bool(result.data)
+            return True
+        except Exception as e:
+            code = getattr(e, "code", None)
+            # A concurrent app session or an existing unique constraint can win
+            # the race after our pre-check. Treat that as an already-seeded row.
+            if code == "23505":
+                return True
+            # Surface actual setup issues, but do not halt browsing/searching.
+            st.warning(f"Default {table} data could not be seeded ({code or 'database error'}): {getattr(e, 'message', str(e))}")
+            return False
+
     try:
-        existing = {f["field_name"] for f in fetch_all("metadata_fields")}
-        new_fields = [{"field_name": n, "label": lb, "field_type": ft, "mandatory": m,
-                       "options": DEFAULT_GENRES if ft == "select" else None}
-                      for n, lb, ft, m in DEFAULT_METADATA_FIELDS if n not in existing]
-        if new_fields:
-            supabase.table("metadata_fields").upsert(new_fields, on_conflict="field_name").execute()
+        existing_fields = {f["field_name"] for f in fetch_all("metadata_fields", select="field_name")}
+        for name, label, ftype, mandatory in DEFAULT_METADATA_FIELDS:
+            if name not in existing_fields:
+                seed_row("metadata_fields", {"field_name": name, "label": label, "field_type": ftype,
+                          "mandatory": mandatory, "options": DEFAULT_GENRES if ftype == "select" else None})
+                existing_fields.add(name)
 
-        lex = {(l["term"], l["category"]) for l in cached_lexicon()}
-        new_lex = [{"term": t, "lang": lg, "category": c, "value": v}
-                   for t, lg, c, v in DEFAULT_LEXICON if (t, c) not in lex]
-        if new_lex:
-            supabase.table("lexicon").upsert(new_lex, on_conflict="term").execute()
+        existing_lex = {(x["term"].lower(), x.get("lang", "pl"), x["category"])
+                        for x in fetch_all("lexicon", select="term,lang,category")}
+        for term, lang, category, value in DEFAULT_LEXICON:
+            key = (term.lower(), lang, category)
+            if key not in existing_lex:
+                if seed_row("lexicon", {"term": term, "lang": lang, "category": category, "value": value}):
+                    existing_lex.add(key)
 
-        ang = {a["term"] for a in cached_anglicisms()}
-        seen = set()
-        new_ang = []
-        for term, cat in DEFAULT_ANGLICISMS:   # dedupe within the seed list itself
-            if term not in ang and term not in seen:
-                new_ang.append({"term": term, "category": cat})
-                seen.add(term)
-        if new_ang:
-            supabase.table("anglicisms").upsert(new_ang, on_conflict="term").execute()
+        existing_ang = {x["term"].lower() for x in fetch_all("anglicisms", select="term")}
+        for term, category in DEFAULT_ANGLICISMS:
+            key = term.lower()
+            if key not in existing_ang:
+                if seed_row("anglicisms", {"term": term, "category": category}):
+                    existing_ang.add(key)
+
+        if changed:
+            clear_caches()
     except Exception as e:
-        # seeding must never block the UI; tables may still be missing
-        st.warning(f"Seeding skipped (run schema_migrate.sql first): {e}")
+        code = getattr(e, "code", None)
+        st.warning(f"Default data seeding could not complete ({code or 'database error'}): {getattr(e, 'message', str(e))}. Run schema_migrate.sql in Supabase.")
 
 POLISH_STOP = set("i w na z z do o a że nie się to jest jak co ale or oraz by dla pod nad za od przy przez który która które czym gdy gdyż więc czyli też już jeszcze bardzo tylko nawet tam tu tuż no well oraz albo lub niż bez niż".split())
 POLISH_DIACRITICS = set("ąćęłńóśźż")
