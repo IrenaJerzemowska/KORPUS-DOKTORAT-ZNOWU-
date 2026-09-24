@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import re, os, io, json, math, unicodedata
+import re, os, io, json, math, unicodedata, html
 from datetime import datetime, date
 from collections import Counter, defaultdict
 import plotly.express as px
@@ -149,11 +149,25 @@ PL_TRANSLATIONS.update({
     "Failed to insert transcript (check that schema.sql was run).": "Nie udało się dodać transkrypcji. Sprawdź, czy uruchomiono skrypt schematu bazy.",
     "No trend points can be plotted yet. Add dated transcripts containing searchable words, or change the selected terms.": "Brak punktów do wykreślenia trendu. Dodaj datowane transkrypcje z tekstem albo zmień wybrane terminy.",
     "Add anglicism": "Dodaj anglicyzm", "Types": "Typy", "Set publish_date metadata to use time tracking.": "Uzupełnij datę publikacji, aby włączyć śledzenie zmian w czasie.",
+    "Text Annotations": "Anotacja tekstu", "Annotate transcript": "Anotuj transkrypcję", "Selected transcript": "Wybrana transkrypcja",
+    "Known anglicisms": "Znane anglicyzmy", "Annotate sentiment / modality / stance lexicon": "Anotuj leksykon sentymentu / modalności / stanowiska",
+    "Lexicon categories to annotate": "Kategorie leksykonu do anotacji", "Annotate selected corpus-dictionary entries": "Anotuj wybrane hasła słownika korpusowego",
+    "Corpus dictionary terms": "Hasła słownika korpusowego", "Annotate POS tags": "Anotuj części mowy", "POS tags to annotate": "Części mowy do anotacji",
+    "Generate annotations": "Wygeneruj anotacje", "No text available for this transcript.": "Brak tekstu dla tej transkrypcji.",
+    "No matches found for the selected annotation layers.": "Nie znaleziono trafień dla wybranych warstw anotacji.",
+    "Download annotated Word document": "Pobierz anotowany dokument Word", "Download annotation spans (CSV)": "Pobierz zakresy anotacji (CSV)",
+    "Possible anglicism candidates from Polish-English overlap": "Możliwe anglicyzmy na podstawie nakładania się korpusu polskiego i angielskiego",
+    "These are candidates for manual review, not confirmed loanwords. Shared Polish/English forms can also be cognates or names.": "To kandydaci do ręcznej weryfikacji, nie potwierdzone zapożyczenia. Wspólne formy polsko-angielskie mogą być też kognatami lub nazwami własnymi.",
+    "Minimum frequency in Polish texts": "Minimalna częstość w tekstach polskich", "Add selected candidates to anglicism list": "Dodaj wybranych kandydatów do listy anglicyzmów",
+    "Possible candidates": "Możliwi kandydaci", "Polish frequency": "Częstość w polszczyźnie", "English frequency": "Częstość w angielszczyźnie", "Kandydat anglicyzmu": "Kandydat anglicyzmu",
+    "Annotations are generated from the transcript, saved lexicon, known-anglicism list, selected corpus terms, and POS tags. The generated document is an export; source transcript stays unchanged.": "Anotacje powstają na podstawie transkrypcji, zapisanego leksykonu, listy anglicyzmów, wybranych haseł korpusowych i części mowy. Pobierany dokument jest kopią; oryginalna transkrypcja pozostaje bez zmian.",
     "Upload file (txt/srt/vtt)": "Prześlij plik (DOCX/TXT/SRT/VTT)", "Corpus statistics": "Statystyki korpusu",
     "The corpus-generated dictionary above is built from your uploaded texts. This editable lexicon stores manually classified terms used by the stance and sentiment filters.": "Powyższy słownik korpusowy powstaje na podstawie przesłanych tekstów. Ten edytowalny leksykon przechowuje ręcznie sklasyfikowane terminy używane w filtrach stanowiska i sentymentu.",
 })
 
 _TRANSLATION_PATTERNS = [
+    (re.compile(r"^No collocates found for '(.+)' in this corpus\. Check the spelling \(the search is case-sensitive and matches the stored lowercase form\)\.$"), r"Nie znaleziono kolokatów dla „\1” w korpusie. Sprawdź pisownię; wyszukiwanie uwzględnia zapis z bazy."),
+    (re.compile(r"^Added (\d+) candidate\(s\)\. Review them in the anglicism list before treating them as established loans\.$"), r"Dodano kandydatów: \1. Sprawdź ich na liście anglicyzmów przed uznaniem za zapożyczenia."),
     (re.compile(r"^spaCy could not initialize \((.*)\)\. Using regex tokenization without POS tags for this run\. Check the pinned compatible dependencies in requirements\.txt\.$"), r"Nie udało się uruchomić spaCy (\1). Tymczasowo używana jest tokenizacja bez oznaczania części mowy. Sprawdź zgodność pakietów w pliku requirements.txt."),
     (re.compile(r"^spaCy model '(.+)' could not load \((.*)\)\. Using regex tokenization without POS tags for this run\. Check the pinned compatible dependencies in requirements\.txt\.$"), r"Nie udało się wczytać modelu spaCy „\1” (\2). Tymczasowo używana jest tokenizacja bez oznaczania części mowy. Sprawdź zgodność pakietów w pliku requirements.txt."),
     (re.compile(r"^Could not draw the trend chart for this selection: (.*)$"), r"Nie udało się narysować wykresu trendu dla tego wyboru: \1"),
@@ -185,7 +199,8 @@ _TRANSLATION_PATTERNS = [
 def _translate_text(value, allow_fragments=False):
     if not isinstance(value, str):
         return value
-    if st.session_state.get("interface_language", "Polish") not in ("Polish", "Polski"):
+    current_language = globals().get("CURRENT_INTERFACE_LANGUAGE", st.session_state.get("interface_language", "Polish"))
+    if current_language not in ("Polish", "Polski"):
         return value
     for pattern, replacement in _TRANSLATION_PATTERNS:
         if pattern.match(value):
@@ -247,14 +262,14 @@ def _install_polish_interface():
 
 _install_polish_interface()
 # Default to Polish, but make an English option available for presentations.
-st.sidebar.selectbox("Interface language", ["Polish", "English"], index=0, key="interface_language")
+CURRENT_INTERFACE_LANGUAGE = st.sidebar.selectbox(_translate_text("Interface language"), ["Polish", "English"], index=0, key="interface_language")
 
 
 def safe_plotly_chart(factory_or_figure, **kwargs):
     """Create and display a Plotly chart without patching Streamlit internals."""
     try:
         figure = factory_or_figure() if callable(factory_or_figure) else factory_or_figure
-        if st.session_state.get("interface_language", "Polish") in ("Polish", "Polski"):
+        if globals().get("CURRENT_INTERFACE_LANGUAGE", st.session_state.get("interface_language", "Polish")) in ("Polish", "Polski"):
             try:
                 if getattr(figure.layout, "title", None) and figure.layout.title.text:
                     figure.layout.title.text = _translate_text(figure.layout.title.text)
@@ -268,28 +283,28 @@ def safe_plotly_chart(factory_or_figure, **kwargs):
     except Exception as exc:
         msg_pl = f"Nie udało się wyświetlić wykresu ({type(exc).__name__}): {exc}"
         msg_en = f"This chart could not be displayed ({type(exc).__name__}): {exc}"
-        st.warning(msg_pl if st.session_state.get("interface_language", "Polish") in ("Polish", "Polski") else msg_en)
+        st.warning(msg_pl if globals().get("CURRENT_INTERFACE_LANGUAGE", st.session_state.get("interface_language", "Polish")) in ("Polish", "Polski") else msg_en)
 
-st.markdown("""
+st.markdown(_translate_text("""
 <style>
     .main-header { font-size: 2.2em; font-weight: bold; color: #1f77b4; margin-bottom: 0.3em; }
     .subheader { font-size: 1.15em; font-weight: bold; color: #333; margin-top: 0.8em; margin-bottom: 0.4em; }
     .kwic-node { font-weight: bold; background-color: #fff3cd; padding: 0.1em 0.35em; border-radius: 0.25em; }
     .ts-chip { font-size: 0.85em; color: #555; font-family: monospace; }
 </style>
-""", unsafe_allow_html=True)
+""", allow_fragments=True), unsafe_allow_html=True)
 
 @st.cache_resource
 def init_supabase() -> Client:
     url = st.secrets.get("SUPABASE_URL") or os.environ.get("SUPABASE_URL")
     key = st.secrets.get("SUPABASE_KEY") or os.environ.get("SUPABASE_KEY")
     if not url or not key:
-        st.error("Missing Supabase credentials. Add SUPABASE_URL and SUPABASE_KEY to your secrets (local: .streamlit/secrets.toml, cloud: Streamlit Cloud app settings).")
+        st.error(_translate_text("Missing Supabase credentials. Add SUPABASE_URL and SUPABASE_KEY to your secrets (local: .streamlit/secrets.toml, cloud: Streamlit Cloud app settings)."))
         st.stop()
     try:
         return create_client(url, key)
     except Exception as e:
-        st.error(f"Could not connect to Supabase: {e}")
+        st.error(_translate_text(f"Could not connect to Supabase: {e}"))
         st.stop()
 
 supabase = init_supabase()
@@ -354,7 +369,7 @@ HINTS = {
 def show_db_error(e):
     code = getattr(e, "code", "") or ""
     msg = getattr(e, "message", None) or str(e)
-    st.error(f"Database error [{code or 'unknown'}]: {msg}")
+    st.error(_translate_text(f"Database error [{code or 'unknown'}]: {msg}"))
     for k, hint in HINTS.items():
         if code == k or (not code and k in msg):
             st.info(_translate_text(hint))
@@ -373,7 +388,7 @@ def db_insert(table, rows, chunk=900):
             show_db_error(e)
             return []
         except Exception as e:
-            st.error(f"Database error: {e}")
+            st.error(_translate_text(f"Database error: {e}"))
             return []
     return inserted
 
@@ -383,7 +398,7 @@ def db_delete(table, column, value):
     except APIError as e:
         show_db_error(e)
     except Exception as e:
-        st.error(f"Database error: {e}")
+        st.error(_translate_text(f"Database error: {e}"))
 
 # ============================================================
 # NLP (fix #6: spaCy models come from requirements.txt; graceful fallback)
@@ -410,10 +425,10 @@ def load_spacy_model(lang_code: str):
         try:
             return spacy.load(model_name), model_name
         except Exception as e:
-            st.warning(f"spaCy model '{model_name}' could not load ({e}). Using regex tokenization without POS tags for this run. Check the pinned compatible dependencies in requirements.txt.")
+            st.warning(_translate_text(f"spaCy model '{model_name}' could not load ({e}). Using regex tokenization without POS tags for this run. Check the pinned compatible dependencies in requirements.txt."))
             return None, model_name
     except Exception as e:
-        st.warning(f"spaCy could not initialize ({e}). Using regex tokenization without POS tags for this run. Check the pinned compatible dependencies in requirements.txt.")
+        st.warning(_translate_text(f"spaCy could not initialize ({e}). Using regex tokenization without POS tags for this run. Check the pinned compatible dependencies in requirements.txt."))
         return None, model_name
 
 WORD_RE = re.compile(r"\w+", re.UNICODE)
@@ -512,14 +527,14 @@ def save_transcript(corpus_id: int, title: str, lang: str, raw_text: str, metada
                     row[k] = v
         res = db_insert("transcriptions", row)
         if not res:
-            st.error("Failed to insert transcript (check that schema.sql was run).")
+            st.error(_translate_text("Failed to insert transcript (check that schema.sql was run)."))
             return 0
         t_id = res[0]["id"]
 
         token_rows = []
         idx_base = 0
         all_tokens = []
-        with st.spinner("Tokenizing and tagging..."):
+        with st.spinner(_translate_text("Tokenizing and tagging...")):
             for seg_text, ts in segments:
                 seg_clean = clean_and_normalize(seg_text)
                 toks = tokenize(seg_clean, nlp_lang or primary_nlp_language(lang))
@@ -552,7 +567,7 @@ def save_transcript(corpus_id: int, title: str, lang: str, raw_text: str, metada
                 clear_caches()
             except Exception:
                 pass
-        st.error(f"Error saving transcript: {e}")
+        st.error(_translate_text(f"Error saving transcript: {e}"))
         return 0
 
 def delete_transcript(t_id):
@@ -658,7 +673,7 @@ def ensure_seed_data():
             if code == "23505":
                 return True
             # Surface actual setup issues, but do not halt browsing/searching.
-            st.warning(f"Default {table} data could not be seeded ({code or 'database error'}): {getattr(e, 'message', str(e))}")
+            st.warning(_translate_text(f"Default {table} data could not be seeded ({code or 'database error'}): {getattr(e, 'message', str(e))}"))
             return False
 
     try:
@@ -688,7 +703,7 @@ def ensure_seed_data():
             clear_caches()
     except Exception as e:
         code = getattr(e, "code", None)
-        st.warning(f"Default data seeding could not complete ({code or 'database error'}): {getattr(e, 'message', str(e))}. Run schema_migrate.sql in Supabase.")
+        st.warning(_translate_text(f"Default data seeding could not complete ({code or 'database error'}): {getattr(e, 'message', str(e))}. Run schema_migrate.sql in Supabase."))
 
 POLISH_STOP = set("i w na z z do o a że nie się to jest jak co ale or oraz by dla pod nad za od przy przez który która które czym gdy gdyż więc czyli też już jeszcze bardzo tylko nawet tam tu tuż no well oraz albo lub niż bez niż".split())
 POLISH_DIACRITICS = set("ąćęłńóśźż")
@@ -740,53 +755,148 @@ def fmt_ts(seconds):
         return ""
     s = int(seconds)
     return f"{s // 3600:02d}:{(s % 3600) // 60:02d}:{s % 60:02d}" if s >= 3600 else f"{s // 60:02d}:{s % 60:02d}"
+
+
+ANNOTATION_COLORS = {
+    "Anglicyzm": "#ffe066", "Kandydat anglicyzmu": "#ffd8a8", "Sentyment pozytywny": "#8ce99a", "Sentyment negatywny": "#ffa8a8",
+    "Modalność epistemiczna": "#99e9f2", "Modalność deontyczna": "#b197fc", "Stanowisko: zgoda": "#a9e34b",
+    "Stanowisko: niezgoda": "#ff8787", "Hasło korpusowe": "#ffd8a8", "Część mowy": "#bac8ff",
+}
+
+def make_bar_figure(frame, x, y, title, orientation="v", color=None):
+    """Build bars with graph_objects so chart availability doesn't depend on px.bar."""
+    fig = go.Figure()
+    if frame is None or frame.empty:
+        return fig
+    groups = [(None, frame)] if not color or color not in frame.columns else list(frame.groupby(color, dropna=False, sort=False))
+    for name, group in groups:
+        kwargs = {"orientation": "h"} if orientation == "h" else {}
+        if name is not None:
+            kwargs["name"] = str(name)
+        fig.add_trace(go.Bar(x=group[x], y=group[y], **kwargs))
+    fig.update_layout(title=title, barmode="group" if color else "relative", xaxis_title=x, yaxis_title=y)
+    return fig
+
+def find_annotation_spans(text, term_labels):
+    """Locate exact words/phrases, allowing flexible whitespace and case."""
+    spans = []
+    seen = set()
+    for term, label in sorted(term_labels, key=lambda item: len(item[0]), reverse=True):
+        term = str(term).strip()
+        if not term:
+            continue
+        body = re.escape(term).replace(r"\ ", r"\s+")
+        pattern = re.compile(r"(?<!\w)" + body + r"(?!\w)", re.IGNORECASE | re.UNICODE)
+        for match in pattern.finditer(text):
+            key = (match.start(), match.end(), label, match.group(0))
+            if key not in seen:
+                spans.append({"start": match.start(), "end": match.end(), "term": match.group(0), "label": label})
+                seen.add(key)
+    return sorted(spans, key=lambda x: (x["start"], x["end"], x["label"]))
+
+def annotation_html(text, spans):
+    """Render escaped source text with overlapping annotation labels in colored highlights."""
+    boundaries = sorted({0, len(text)} | {p for row in spans for p in (row["start"], row["end"])})
+    parts = []
+    for start, end in zip(boundaries, boundaries[1:]):
+        if end <= start:
+            continue
+        active = sorted({row["label"] for row in spans if row["start"] <= start and row["end"] >= end})
+        chunk = html.escape(text[start:end]).replace("\n", "<br>")
+        if active:
+            color = ANNOTATION_COLORS.get(active[0], "#fff3bf")
+            tip = html.escape(", ".join(active), quote=True)
+            parts.append(f'<mark style="background-color:{color}; padding:1px 3px" title="{tip}">{chunk}</mark>')
+        else:
+            parts.append(chunk)
+    return "".join(parts)
+
+def annotation_docx_bytes(text, spans, title):
+    """Create a color-highlighted Word copy with a compact annotation legend."""
+    from docx import Document
+    from docx.enum.text import WD_COLOR_INDEX
+    color_enum = {
+        "Anglicyzm": WD_COLOR_INDEX.YELLOW, "Kandydat anglicyzmu": WD_COLOR_INDEX.GRAY_25, "Sentyment pozytywny": WD_COLOR_INDEX.BRIGHT_GREEN,
+        "Sentyment negatywny": WD_COLOR_INDEX.PINK, "Modalność epistemiczna": WD_COLOR_INDEX.TURQUOISE,
+        "Modalność deontyczna": WD_COLOR_INDEX.VIOLET, "Stanowisko: zgoda": WD_COLOR_INDEX.BRIGHT_GREEN,
+        "Stanowisko: niezgoda": WD_COLOR_INDEX.RED, "Hasło korpusowe": WD_COLOR_INDEX.YELLOW,
+        "Część mowy": WD_COLOR_INDEX.BLUE,
+    }
+    doc = Document()
+    doc.add_heading(f"Anotacja korpusowa: {title}", level=1)
+    labs = sorted({r["label"] for r in spans})
+    if labs:
+        doc.add_paragraph("Legenda: " + "; ".join(labs))
+    boundaries = sorted({0, len(text)} | {p for row in spans for p in (row["start"], row["end"])})
+    # Preserve paragraph breaks while retaining all matched offsets.
+    line_start = 0
+    for line in text.splitlines(keepends=True) or [text]:
+        content = line.rstrip("\r\n")
+        para = doc.add_paragraph()
+        line_end = line_start + len(content)
+        points = sorted({line_start, line_end} | {p for p in boundaries if line_start < p < line_end})
+        for a, b in zip(points, points[1:]):
+            segment = text[a:b]
+            active = sorted({r["label"] for r in spans if r["start"] <= a and r["end"] >= b})
+            run = para.add_run(segment)
+            if active:
+                run.font.highlight_color = color_enum.get(active[0], WD_COLOR_INDEX.YELLOW)
+        if line.endswith("\n"):
+            para.add_run("\n")
+        line_start += len(line)
+    if not text:
+        doc.add_paragraph("")
+    out = io.BytesIO()
+    doc.save(out)
+    out.seek(0)
+    return out.getvalue()
 # ============================================================
 # SIDEBAR: corpus management
 # ============================================================
 with st.sidebar:
-    st.markdown("## Corpus Management")
+    st.markdown(_translate_text("## Corpus Management", allow_fragments=True))
     st.session_state.setdefault("corpus_id", None)
 
     corpora = cached_corpora()
     if not corpora:
-        st.info("No corpora yet. Create one below.")
+        st.info(_translate_text("No corpora yet. Create one below."))
         st.session_state.corpus_id = None
     else:
         labels = {c["id"]: c["name"] for c in corpora}
         current = st.session_state.corpus_id if st.session_state.corpus_id in labels else list(labels)[0]
-        sel = st.selectbox("Active corpus", options=list(labels), format_func=lambda i: labels[i], index=list(labels).index(current))
+        sel = st.selectbox(_translate_text("Active corpus"), options=list(labels), format_func=lambda i: labels[i], index=list(labels).index(current))
         st.session_state.corpus_id = sel
-        if st.button("Delete this corpus", type="secondary", use_container_width=True):
+        if st.button(_translate_text("Delete this corpus"), type="secondary", use_container_width=True):
             st.session_state.confirm_delete = True
         if st.session_state.get("confirm_delete"):
-            if st.checkbox("I understand this deletes all texts and tokens"):
-                if st.button("Confirm delete", type="primary"):
+            if st.checkbox(_translate_text("I understand this deletes all texts and tokens")):
+                if st.button(_translate_text("Confirm delete"), type="primary"):
                     delete_corpus(sel)
                     st.session_state.corpus_id = None
                     st.session_state.confirm_delete = False
                     st.rerun()
 
     st.divider()
-    st.markdown("### Create new corpus")
-    new_name = st.text_input("Name", key="new_corpus_name", placeholder="e.g. Polish YouTube Podcasts")
-    new_desc = st.text_area("Description", key="new_corpus_desc", height=70)
-    new_lang = st.selectbox("Main language", ["pl", "en", "pl-en"], format_func=lambda l: {"pl": "Polish", "en": "English", "pl-en": "Polish + English bilingual"}[l])
-    if st.button("Create corpus", type="primary", use_container_width=True):
+    st.markdown(_translate_text("### Create new corpus", allow_fragments=True))
+    new_name = st.text_input(_translate_text("Name"), key="new_corpus_name", placeholder="e.g. Polish YouTube Podcasts")
+    new_desc = st.text_area(_translate_text("Description"), key="new_corpus_desc", height=70)
+    new_lang = st.selectbox(_translate_text("Main language"), ["pl", "en", "pl-en"], format_func=lambda l: {"pl": "Polish", "en": "English", "pl-en": "Polish + English bilingual"}[l])
+    if st.button(_translate_text("Create corpus"), type="primary", use_container_width=True):
         if not new_name.strip():
-            st.error("Enter a corpus name.")
+            st.error(_translate_text("Enter a corpus name."))
         elif any(c["name"].lower() == new_name.strip().lower() for c in corpora):
-            st.error(f"A corpus named '{new_name.strip()}' already exists. Pick another name.")
+            st.error(_translate_text(f"A corpus named '{new_name.strip()}' already exists. Pick another name."))
         else:
             created = db_insert("corpora", {"name": new_name.strip(), "description": new_desc, "language": new_lang, "created_at": datetime.now().isoformat(), "token_count": 0})
             if created:
                 clear_caches()
-                st.success(f"Corpus '{new_name.strip()}' created.")
+                st.success(_translate_text(f"Corpus '{new_name.strip()}' created."))
                 st.rerun()
 
 corpus_id = st.session_state.get("corpus_id")
 if not corpus_id:
-    st.markdown("<h1 class='main-header'>Linguistic Corpus Engine</h1>", unsafe_allow_html=True)
-    st.warning("Create or select a corpus in the sidebar to start.")
+    st.markdown(_translate_text("<h1 class='main-header'>Linguistic Corpus Engine</h1>", allow_fragments=True), unsafe_allow_html=True)
+    st.warning(_translate_text("Create or select a corpus in the sidebar to start."))
     st.stop()
 
 ensure_seed_data()
@@ -796,33 +906,35 @@ CORPUS_LANG = next((c.get("language", "pl") for c in cached_corpora() if c["id"]
 # header metrics
 total_tokens = corpus_size(corpus_id)
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Texts", len(transcripts))
-c2.metric("Tokens", f"{total_tokens:,}")
+c1.metric(_translate_text("Texts"), len(transcripts))
+c2.metric(_translate_text("Tokens"), f"{total_tokens:,}")
 types = len(corpus_word_freq(corpus_id, "lemma"))
-c3.metric("Types (lemmas)", f"{types:,}")
-c4.metric("TTR", f"{types / total_tokens:.3f}" if total_tokens else "n/a")
+c3.metric(_translate_text("Types (lemmas)"), f"{types:,}")
+c4.metric(_translate_text("TTR"), f"{types / total_tokens:.3f}" if total_tokens else "n/a")
 st.divider()
 
 # ============================================================
 # TAB 1: UPLOAD & MANAGE (fix #3: edit + delete + metadata schema)
 # ============================================================
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9 = st.tabs([
-    "Upload & Manage", "KWIC + Timestamps", "Dictionaries", "Frequency & Trends",
-    "Neologisms & Keyness", "Semantic Drift & Keywords over Time", "Loanwords & Anglicisms",
-    "Stance / Sentiment / Modality", "Statistics & Metadata",
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8, tab9, tab10 = st.tabs([
+    _translate_text(label) for label in [
+        "Upload & Manage", "KWIC + Timestamps", "Dictionaries", "Frequency & Trends",
+        "Neologisms & Keyness", "Semantic Drift & Keywords over Time", "Loanwords & Anglicisms",
+        "Stance / Sentiment / Modality", "Statistics & Metadata", "Text Annotations",
+    ]
 ])
 
 with tab1:
-    st.markdown("<h3 class='subheader'>Add texts</h3>", unsafe_allow_html=True)
+    st.markdown(_translate_text("<h3 class='subheader'>Add texts</h3>", allow_fragments=True), unsafe_allow_html=True)
     meta_fields = cached_metadata_fields()
-    upload_method = st.radio("Method:", ["Paste text", "Upload file (txt/srt/vtt)"], horizontal=True)
+    upload_method = st.radio(_translate_text("Method:"), ["Paste text", "Upload file (txt/srt/vtt)"], horizontal=True)
 
     def choose_transcript_language(key):
         default_lang = CORPUS_LANG if CORPUS_LANG in TEXT_LANGUAGE_OPTIONS.values() else "pl"
         labels = list(TEXT_LANGUAGE_OPTIONS.keys())
         values = list(TEXT_LANGUAGE_OPTIONS.values())
         default_index = values.index(default_lang) if default_lang in values else 0
-        selected = st.selectbox("Transcript language (choose separately from the corpus default)", labels, index=default_index, key=key)
+        selected = st.selectbox(_translate_text("Transcript language (choose separately from the corpus default)"), labels, index=default_index, key=key)
         return TEXT_LANGUAGE_OPTIONS[selected]
 
     def metadata_form(prefix):
@@ -836,51 +948,51 @@ with tab1:
             with cols[fidx % 2]:
                 if f["field_type"] == "select":
                     opts = f.get("options") or []
-                    v = st.selectbox(f["label"] + (" *" if f["mandatory"] else ""), opts + ["(none)"], key=widget_key)
+                    v = st.selectbox(_translate_text(f["label"] + (" *" if f["mandatory"] else "")), opts + ["(none)"], key=widget_key)
                     if v not in (None, "(none)"):
                         md[f["field_name"]] = v
                 elif f["field_type"] == "date":
-                    v = st.date_input(f["label"] + (" *" if f["mandatory"] else ""), value=None, key=widget_key)
+                    v = st.date_input(_translate_text(f["label"] + (" *" if f["mandatory"] else "")), value=None, key=widget_key)
                     if v:
                         md[f["field_name"]] = v.isoformat()
                 elif f["field_type"] == "number":
-                    v = st.number_input(f["label"] + (" *" if f["mandatory"] else ""), min_value=0, step=1, key=widget_key)
+                    v = st.number_input(_translate_text(f["label"] + (" *" if f["mandatory"] else "")), min_value=0, step=1, key=widget_key)
                     if v is not None:
                         md[f["field_name"]] = int(v)
                 else:
-                    v = st.text_input(f["label"] + (" *" if f["mandatory"] else ""), key=widget_key)
+                    v = st.text_input(_translate_text(f["label"] + (" *" if f["mandatory"] else "")), key=widget_key)
                     if v.strip():
                         md[f["field_name"]] = v.strip()
             fidx += 1
         return md
 
     if upload_method == "Paste text":
-        title = st.text_input("Title *", key="paste_title")
+        title = st.text_input(_translate_text("Title *"), key="paste_title")
         transcript_lang = choose_transcript_language("paste_language")
-        video_url = st.text_input("Video URL (YouTube link enables the timestamp viewer)", key="paste_url")
+        video_url = st.text_input(_translate_text("Video URL (YouTube link enables the timestamp viewer)"), key="paste_url")
         md = metadata_form("paste")
         missing = [f["label"] for f in meta_fields if f["mandatory"] and f["field_name"] not in md and f["field_name"] not in ("language", "video_url")]
-        text_input = st.text_area("Text content *", height=220, key="paste_text", placeholder="Paste transcript. Inline [mm:ss] markers or SRT/VTT cues are detected automatically for timestamps.")
-        if st.button("Add to corpus", type="primary", use_container_width=True):
+        text_input = st.text_area(_translate_text("Text content *"), height=220, key="paste_text", placeholder="Paste transcript. Inline [mm:ss] markers or SRT/VTT cues are detected automatically for timestamps.")
+        if st.button(_translate_text("Add to corpus"), type="primary", use_container_width=True):
             if not title.strip() or not text_input.strip():
-                st.error("Title and text are required.")
+                st.error(_translate_text("Title and text are required."))
             elif missing:
-                st.error("Missing mandatory metadata: " + ", ".join(missing))
+                st.error(_translate_text("Missing mandatory metadata: " + ", ".join(missing)))
             else:
                 n = save_transcript(corpus_id, title.strip(), transcript_lang, text_input, metadata=md, video_url=video_url, nlp_lang=primary_nlp_language(transcript_lang))
                 if n:
-                    st.success(f"Saved. {n:,} tokens indexed.")
+                    st.success(_translate_text(f"Saved. {n:,} tokens indexed."))
                     st.rerun()
     else:
-        up = st.file_uploader("Upload .docx / .txt / .srt / .vtt (batch: select multiple)", type=["docx", "txt", "srt", "vtt"], accept_multiple_files=True)
+        up = st.file_uploader(_translate_text("Upload .docx / .txt / .srt / .vtt (batch: select multiple)"), type=["docx", "txt", "srt", "vtt"], accept_multiple_files=True)
         if up:
             transcript_lang = choose_transcript_language("file_language")
             md = metadata_form("file")
             missing = [f["label"] for f in meta_fields if f["mandatory"] and f["field_name"] not in md and f["field_name"] not in ("language", "video_url")]
             if missing:
-                st.warning("Mandatory fields still empty: " + ", ".join(missing))
-            video_url = st.text_input("Video URL for these files (optional)", key="file_url")
-            if st.button("Add files to corpus", type="primary", use_container_width=True):
+                st.warning(_translate_text("Mandatory fields still empty: " + ", ".join(missing)))
+            video_url = st.text_input(_translate_text("Video URL for these files (optional)"), key="file_url")
+            if st.button(_translate_text("Add files to corpus"), type="primary", use_container_width=True):
                 added = 0
                 for f in up:
                     try:
@@ -907,48 +1019,48 @@ with tab1:
                                             blocks.append(row_text)
                             content = "\n".join(blocks)
                             if not content.strip():
-                                st.warning(f"{f.name}: no extractable text found, skipped.")
+                                st.warning(_translate_text(f"{f.name}: no extractable text found, skipped."))
                                 continue
                         else:
                             content = f.getvalue().decode("utf-8-sig", errors="replace")
                     except Exception as e:
-                        st.error(f"{f.name}: could not extract text ({e})")
+                        st.error(_translate_text(f"{f.name}: could not extract text ({e})"))
                         continue
                     tname = re.sub(r"\.(docx|txt|srt|vtt)$", "", f.name, flags=re.I)
                     n = save_transcript(corpus_id, tname, transcript_lang, content, metadata=md, video_url=video_url, nlp_lang=primary_nlp_language(transcript_lang))
                     added += 1 if n else 0
                 if added:
-                    st.success(f"Added {added} file(s).")
+                    st.success(_translate_text(f"Added {added} file(s)."))
                     st.rerun()
 
     st.divider()
-    st.markdown("<h3 class='subheader'>Texts in this corpus (edit / delete)</h3>", unsafe_allow_html=True)
+    st.markdown(_translate_text("<h3 class='subheader'>Texts in this corpus (edit / delete)</h3>", allow_fragments=True), unsafe_allow_html=True)
     if transcripts:
         for t in transcripts:
-            with st.expander(f"{t['title']}  ({(t.get('publish_date') or 'no date')} | {(t.get('channel') or 'no channel')})"):
-                e_title = st.text_input("Title", value=t["title"], key=f"et_{t['id']}")
+            with st.expander(_translate_text(f"{t['title']}  ({(t.get('publish_date') or 'no date')} | {(t.get('channel') or 'no channel')})")):
+                e_title = st.text_input(_translate_text("Title"), value=t["title"], key=f"et_{t['id']}")
                 current_lang = t.get("language") or CORPUS_LANG
                 lang_values = list(TEXT_LANGUAGE_OPTIONS.values())
                 lang_labels = list(TEXT_LANGUAGE_OPTIONS.keys())
                 selected_lang = current_lang if current_lang in lang_values else "pl"
-                e_lang_label = st.selectbox("Transcript language", lang_labels, index=lang_values.index(selected_lang), key=f"elang_{t['id']}")
+                e_lang_label = st.selectbox(_translate_text("Transcript language"), lang_labels, index=lang_values.index(selected_lang), key=f"elang_{t['id']}")
                 e_lang = TEXT_LANGUAGE_OPTIONS[e_lang_label]
-                e_url = st.text_input("Video URL", value=t.get("video_url") or "", key=f"eu_{t['id']}")
-                e_text = st.text_area("Clean text", value=t.get("clean_text") or "", height=140, key=f"ex_{t['id']}")
+                e_url = st.text_input(_translate_text("Video URL"), value=t.get("video_url") or "", key=f"eu_{t['id']}")
+                e_text = st.text_area(_translate_text("Clean text"), value=t.get("clean_text") or "", height=140, key=f"ex_{t['id']}")
                 e_md = {}
                 for f in meta_fields:
                     cur = t.get(f["field_name"])
                     if f["field_type"] == "select":
                         opts = (f.get("options") or []) + ["(none)"]
-                        v = st.selectbox(f["label"], opts, index=opts.index(cur) if cur in opts else len(opts) - 1, key=f"em_{t['id']}_{f['field_name']}")
+                        v = st.selectbox(_translate_text(f["label"]), opts, index=opts.index(cur) if cur in opts else len(opts) - 1, key=f"em_{t['id']}_{f['field_name']}")
                         e_md[f["field_name"]] = None if v == "(none)" else v
                     elif f["field_type"] == "date":
-                        v = st.date_input(f["label"], value=pd.to_datetime(cur).date() if cur else None, key=f"em_{t['id']}_{f['field_name']}")
+                        v = st.date_input(_translate_text(f["label"]), value=pd.to_datetime(cur).date() if cur else None, key=f"em_{t['id']}_{f['field_name']}")
                         e_md[f["field_name"]] = v.isoformat() if v else None
                     else:
-                        e_md[f["field_name"]] = st.text_input(f["label"], value=str(cur) if cur else "", key=f"em_{t['id']}_{f['field_name']}")
+                        e_md[f["field_name"]] = st.text_input(_translate_text(f["label"]), value=str(cur) if cur else "", key=f"em_{t['id']}_{f['field_name']}")
                 cA, cB, cC = st.columns(3)
-                if cA.button("Save changes", key=f"sv_{t['id']}"):
+                if cA.button(_translate_text("Save changes"), key=f"sv_{t['id']}"):
                     updates = {"title": e_title, "video_url": e_url or None, "language": e_lang}
                     updates.update({k: v for k, v in e_md.items()})
                     retext = e_text != (t.get("clean_text") or "")
@@ -959,40 +1071,40 @@ with tab1:
                     if retext:
                         n = save_transcript(corpus_id, e_title, e_lang, e_text, metadata=updates, video_url=e_url, nlp_lang=primary_nlp_language(e_lang))
                         delete_transcript(t["id"])  # old tokens
-                        st.success("Text and tokens re-indexed.")
+                        st.success(_translate_text("Text and tokens re-indexed."))
                     else:
-                        st.success("Saved.")
+                        st.success(_translate_text("Saved."))
                     st.rerun()
-                if cB.button("Re-tokenize", key=f"rt_{t['id']}"):
+                if cB.button(_translate_text("Re-tokenize"), key=f"rt_{t['id']}"):
                     delete_transcript(t["id"])
                     save_transcript(corpus_id, t["title"], t.get("language") or CORPUS_LANG, t.get("raw_text") or t.get("clean_text") or "", metadata={k: t.get(k) for k in [f["field_name"] for f in meta_fields]}, video_url=t.get("video_url") or "", nlp_lang=primary_nlp_language(t.get("language") or CORPUS_LANG))
                     st.rerun()
-                if cC.button("Delete", key=f"dl_{t['id']}", type="primary"):
+                if cC.button(_translate_text("Delete"), key=f"dl_{t['id']}", type="primary"):
                     delete_transcript(t["id"])
                     st.rerun()
     else:
-        st.info("No texts yet.")
+        st.info(_translate_text("No texts yet."))
 
 # ============================================================
 # TAB 2: KWIC + TIMESTAMP VIEWER (fix #2: single query, fix #4: ts)
 # ============================================================
 with tab2:
-    st.markdown("<h3 class='subheader'>KWIC concordance</h3>", unsafe_allow_html=True)
+    st.markdown(_translate_text("<h3 class='subheader'>KWIC concordance</h3>", allow_fragments=True), unsafe_allow_html=True)
     kw_all = corpus_word_freq(corpus_id, "word")
     lm_all = corpus_word_freq(corpus_id, "lemma")
     if not kw_all:
-        st.info("Upload texts first.")
+        st.info(_translate_text("Upload texts first."))
     else:
         cL, cR = st.columns([3, 1])
         with cL:
-            mode = st.radio("Match on:", ["word", "lemma"], horizontal=True, key="kwic_mode")
-            query = st.text_input("Query (exact word, or wildcard with *):", placeholder="e.g. polityk* or 'jest'")
+            mode = st.radio(_translate_text("Match on:"), ["word", "lemma"], horizontal=True, key="kwic_mode")
+            query = st.text_input(_translate_text("Query (exact word, or wildcard with *):"), placeholder="e.g. polityk* or 'jest'")
         with cR:
             window = st.slider("Context words", 2, 15, 5, key="kwic_win")
             max_hits = st.slider("Max hits", 10, 500, 100, key="kwic_max")
         pattern = "^" + re.escape(query.lower()).replace(r"\*", ".*") + "$" if query and "*" in query else (query.lower() if query else None)
 
-        if st.button("Run KWIC", type="primary") and pattern:
+        if st.button(_translate_text("Run KWIC"), type="primary") and pattern:
             level_col = "word" if mode == "word" else "lemma"
             hits = []
             for t in transcripts:
@@ -1004,7 +1116,7 @@ with tab2:
                 if total:
                     hits.append((t["id"], t["title"], total))
             hits.sort(key=lambda x: -x[2])
-            st.info(f"{len(hits)} matching texts")
+            st.info(_translate_text(f"{len(hits)} matching texts"))
             hits = hits[:max_hits]
             if hits:
                 rows = []
@@ -1035,11 +1147,11 @@ with tab2:
                         break
                 kwic_df = pd.DataFrame(rows)
                 st.dataframe(kwic_df[["Text", "Left", "Node", "Right", "POS", "Timestamp"]], use_container_width=True, hide_index=True)
-                st.download_button("Download KWIC as CSV", kwic_df.drop(columns=["token_index", "transcript_id"]).to_csv(index=False), file_name="kwic.csv", mime="text/csv")
+                st.download_button(_translate_text("Download KWIC as CSV"), kwic_df.drop(columns=["token_index", "transcript_id"]).to_csv(index=False), file_name="kwic.csv", mime="text/csv")
 
                 # timestamp viewer
                 st.divider()
-                st.markdown("<h3 class='subheader'>Video timestamp viewer</h3>", unsafe_allow_html=True)
+                st.markdown(_translate_text("<h3 class='subheader'>Video timestamp viewer</h3>", allow_fragments=True), unsafe_allow_html=True)
                 url_for_ts = None
                 for t in transcripts:
                     if t["id"] == kwic_df.iloc[0]["transcript_id"]:
@@ -1049,9 +1161,9 @@ with tab2:
                 else:
                     yt = None
                 if not yt:
-                    st.caption("Add a YouTube URL to a transcript to embed the player here.")
+                    st.caption(_translate_text("Add a YouTube URL to a transcript to embed the player here."))
                 else:
-                    sel_row = st.selectbox("Jump to hit:", range(len(kwic_df)), format_func=lambda i: f"[{kwic_df.iloc[i]['Timestamp']}] {kwic_df.iloc[i]['Node']} in {kwic_df.iloc[i]['Text']}")
+                    sel_row = st.selectbox(_translate_text("Jump to hit:"), range(len(kwic_df)), format_func=lambda i: f"[{kwic_df.iloc[i]['Timestamp']}] {kwic_df.iloc[i]['Node']} in {kwic_df.iloc[i]['Text']}")
                     r = kwic_df.iloc[sel_row]
                     secs = None
                     ts_str = r["Timestamp"]
@@ -1059,29 +1171,29 @@ with tab2:
                         parts = ts_str.split(":")
                         secs = int(parts[-1]) + 60 * int(parts[-2]) + (3600 * int(parts[-3]) if len(parts) == 3 else 0)
                     st.video(f"https://www.youtube.com/embed/{yt}?start={int(secs or 0)}&autoplay=0")
-                    st.caption(f"Context: ... {r['Left']} **{r['Node']}** {r['Right']} ...")
+                    st.caption(_translate_text(f"Context: ... {r['Left']} **{r['Node']}** {r['Right']} ..."))
 
 # ============================================================
 # TAB 3: CORPUS-GENERATED DICTIONARY + EDITABLE LEXICON
 # ============================================================
 with tab3:
-    st.markdown("<h3 class='subheader'>Dictionary generated from uploaded texts</h3>", unsafe_allow_html=True)
-    st.caption("This corpus-derived word list updates from the texts stored in the corpus. It reports observed forms or lemmas, frequencies, and document coverage. It does not invent definitions; add definitions manually in your research notes or lexicon.")
+    st.markdown(_translate_text("<h3 class='subheader'>Dictionary generated from uploaded texts</h3>", allow_fragments=True), unsafe_allow_html=True)
+    st.caption(_translate_text("This corpus-derived word list updates from the texts stored in the corpus. It reports observed forms or lemmas, frequencies, and document coverage. It does not invent definitions; add definitions manually in your research notes or lexicon."))
 
     if not transcripts:
-        st.info("Upload texts first to generate a corpus dictionary.")
+        st.info(_translate_text("Upload texts first to generate a corpus dictionary."))
     else:
         dc1, dc2, dc3 = st.columns([1, 1, 1])
         with dc1:
-            dict_lang = st.selectbox("Dictionary language", ["all", "pl", "en", "mixed"],
+            dict_lang = st.selectbox(_translate_text("Dictionary language"), ["all", "pl", "en", "mixed"],
                 format_func=lambda x: {"all": "All transcript languages", "pl": "Polish", "en": "English", "mixed": "Mixed Polish-English"}[x], key="dict_language")
         with dc2:
-            dict_unit = st.selectbox("Entry type", ["lemma", "word"], key="dict_unit")
+            dict_unit = st.selectbox(_translate_text("Entry type"), ["lemma", "word"], key="dict_unit")
         with dc3:
-            min_dict_freq = st.number_input("Minimum frequency", min_value=1, max_value=1000, value=2, step=1, key="dict_min_freq")
+            min_dict_freq = st.number_input(_translate_text("Minimum frequency"), min_value=1, max_value=1000, value=2, step=1, key="dict_min_freq")
 
-        include_common = st.checkbox("Include common function words", value=False, key="dict_common")
-        dict_query = st.text_input("Filter entries", placeholder="Type a word or part of a word", key="dict_query").strip().casefold()
+        include_common = st.checkbox(_translate_text("Include common function words"), value=False, key="dict_common")
+        dict_query = st.text_input(_translate_text("Filter entries"), placeholder="Type a word or part of a word", key="dict_query").strip().casefold()
         term_counts = Counter()
         term_docs = Counter()
         lang_counts = Counter()
@@ -1129,16 +1241,16 @@ with tab3:
             })
         dict_df = pd.DataFrame(dict_rows)
         if dict_df.empty:
-            st.info("No entries match these filters. Lower the minimum frequency or include common words.")
+            st.info(_translate_text("No entries match these filters. Lower the minimum frequency or include common words."))
         else:
             dict_top = st.slider("Maximum dictionary entries shown", min_value=25, max_value=1000, value=200, step=25, key="dict_limit")
             shown_dict = dict_df.head(dict_top)
-            st.metric("Dictionary entries", f"{len(dict_df):,}")
+            st.metric(_translate_text("Dictionary entries"), f"{len(dict_df):,}")
             st.dataframe(shown_dict, use_container_width=True, hide_index=True)
-            st.download_button("Download corpus dictionary (CSV)", dict_df.to_csv(index=False), file_name="corpus_dictionary.csv", mime="text/csv")
+            st.download_button(_translate_text("Download corpus dictionary (CSV)"), dict_df.to_csv(index=False), file_name="corpus_dictionary.csv", mime="text/csv")
 
-            selected_term = st.selectbox("Show concordance examples for an entry", shown_dict["Entry"].tolist(), key="dict_example_term")
-            if st.button("Show examples", key="dict_show_examples"):
+            selected_term = st.selectbox(_translate_text("Show concordance examples for an entry"), shown_dict["Entry"].tolist(), key="dict_example_term")
+            if st.button(_translate_text("Show examples"), key="dict_show_examples"):
                 match_col = "lemma" if dict_unit == "lemma" else "word"
                 examples_res = (supabase.table("tokens").select("transcript_id,token_index,word,lemma")
                                 .eq("corpus_id", corpus_id).eq(match_col, selected_term)
@@ -1159,27 +1271,27 @@ with tab3:
                 if example_rows:
                     st.dataframe(pd.DataFrame(example_rows), use_container_width=True, hide_index=True)
                 else:
-                    st.caption("No indexed contexts are available for this entry yet.")
+                    st.caption(_translate_text("No indexed contexts are available for this entry yet."))
 
     st.divider()
-    st.markdown("<h3 class='subheader'>Research lexicon: sentiment, modality, and stance</h3>", unsafe_allow_html=True)
-    st.caption("The corpus-generated dictionary above is built from your uploaded texts. This editable lexicon stores manually classified terms used by the stance and sentiment filters.")
+    st.markdown(_translate_text("<h3 class='subheader'>Research lexicon: sentiment, modality, and stance</h3>", allow_fragments=True), unsafe_allow_html=True)
+    st.caption(_translate_text("The corpus-generated dictionary above is built from your uploaded texts. This editable lexicon stores manually classified terms used by the stance and sentiment filters."))
     lex = cached_lexicon()
     lex_df = pd.DataFrame(lex)[["term", "lang", "category", "value"]] if lex else pd.DataFrame(columns=["term", "lang", "category", "value"])
     st.dataframe(lex_df, use_container_width=True, hide_index=True)
-    with st.expander("Add dictionary entry"):
-        n_term = st.text_input("Term / phrase", key="lex_term")
-        n_lang = st.selectbox("Language", ["pl", "en"], key="lex_lang")
-        n_cat = st.selectbox("Category", ["positive", "negative", "epistemic", "deontic", "stance_agree", "stance_disagree", "custom"], key="lex_cat")
-        n_val = st.number_input("Value (for sentiment: -1..1)", -1.0, 1.0, 1.0, 0.5, key="lex_val")
-        if st.button("Add entry", key="lex_add"):
+    with st.expander(_translate_text("Add dictionary entry")):
+        n_term = st.text_input(_translate_text("Term / phrase"), key="lex_term")
+        n_lang = st.selectbox(_translate_text("Language"), ["pl", "en"], key="lex_lang")
+        n_cat = st.selectbox(_translate_text("Category"), ["positive", "negative", "epistemic", "deontic", "stance_agree", "stance_disagree", "custom"], key="lex_cat")
+        n_val = st.number_input(_translate_text("Value (for sentiment: -1..1)"), -1.0, 1.0, 1.0, 0.5, key="lex_val")
+        if st.button(_translate_text("Add entry"), key="lex_add"):
             if n_term.strip():
                 db_insert("lexicon", {"term": n_term.strip().lower(), "lang": n_lang, "category": n_cat, "value": float(n_val)})
                 clear_caches()
                 st.rerun()
     del_opts = [f"{r['term']} [{r['lang']}/{r['category']}]" for _, r in lex_df.iterrows()] if not lex_df.empty else []
-    if del_opts and st.multiselect("Delete entries", del_opts, key="lex_del"):
-        if st.button("Confirm delete", key="lex_del_go"):
+    if del_opts and st.multiselect(_translate_text("Delete entries"), del_opts, key="lex_del"):
+        if st.button(_translate_text("Confirm delete"), key="lex_del_go"):
             for sel_ in st.session_state.lex_del:
                 term, rest = sel_.rsplit(" [", 1)
                 lang, cat = rest.rstrip("]").split("/")
@@ -1192,20 +1304,20 @@ with tab3:
 # TAB 4: FREQUENCY & TRENDS (time slicing)
 # ============================================================
 with tab4:
-    st.markdown("<h3 class='subheader'>Frequency & time-sliced trends</h3>", unsafe_allow_html=True)
+    st.markdown(_translate_text("<h3 class='subheader'>Frequency & time-sliced trends</h3>", allow_fragments=True), unsafe_allow_html=True)
     if not transcripts:
-        st.info("Upload texts first.")
+        st.info(_translate_text("Upload texts first."))
     else:
-        f_mode = st.radio("Level:", ["word", "lemma"], horizontal=True, key="freq_mode")
-        gran = st.selectbox("Time slice granularity", ["Year", "Quarter", "Month"], key="freq_gran")
+        f_mode = st.radio(_translate_text("Level:"), ["word", "lemma"], horizontal=True, key="freq_mode")
+        gran = st.selectbox(_translate_text("Time slice granularity"), ["Year", "Quarter", "Month"], key="freq_gran")
         freq_df_all = corpus_word_freq(corpus_id, f_mode)
         top_terms = [w for w, _ in freq_df_all.most_common(40)]
-        chosen = st.multiselect("Terms to track over time (empty = top 10 overall)", top_terms, default=[], key="freq_terms")
+        chosen = st.multiselect(_translate_text("Terms to track over time (empty = top 10 overall)"), top_terms, default=[], key="freq_terms")
         if not chosen:
             chosen = [w for w, _ in freq_df_all.most_common(10)]
         sliced = slice_transcripts(transcripts, gran)
         if sliced.empty:
-            st.warning("No publish_date values set. Fill the mandatory 'Publish date' metadata to enable trends.")
+            st.warning(_translate_text("No publish_date values set. Fill the mandatory 'Publish date' metadata to enable trends."))
         else:
             series = {s: Counter() for s in sorted(sliced["slice"].unique())}
             sizes = {s: 0 for s in series}
@@ -1222,7 +1334,7 @@ with tab4:
                                        "per_million": float(round(c / sizes[slice_label] * 1e6, 2)) if sizes[slice_label] else 0.0})
             tdf = pd.DataFrame(trend_rows, columns=["slice", "term", "count", "per_million"])
             if tdf.empty or not chosen or not tdf["per_million"].notna().any():
-                st.warning("No trend points can be plotted yet. Add dated transcripts containing searchable words, or change the selected terms.")
+                st.warning(_translate_text("No trend points can be plotted yet. Add dated transcripts containing searchable words, or change the selected terms."))
             else:
                 tdf["per_million"] = pd.to_numeric(tdf["per_million"], errors="coerce")
                 try:
@@ -1230,7 +1342,7 @@ with tab4:
                                   title=f"Frequency per million words ({gran.lower()}ly)")
                     safe_plotly_chart(fig, use_container_width=True)
                 except (ValueError, TypeError, KeyError) as e:
-                    st.warning(f"Could not draw the trend chart for this selection: {e}. The frequency table below remains available.")
+                    st.warning(_translate_text(f"Could not draw the trend chart for this selection: {e}. The frequency table below remains available."))
                 st.dataframe(tdf.pivot(index="slice", columns="term", values="count").fillna(0), use_container_width=True)
 
         st.divider()
@@ -1238,21 +1350,21 @@ with tab4:
         freq_df = pd.DataFrame(freq_df_all.most_common(n_show), columns=[f_mode.capitalize(), "Frequency"])
         freq_df["Rel. freq (per 1M)"] = (freq_df["Frequency"] / total_tokens * 1e6).round(1) if total_tokens else 0
         if total_tokens:
-            safe_plotly_chart(lambda: px.bar(freq_df.head(20), x=f_mode.capitalize(), y="Frequency", color="Frequency", color_continuous_scale="Blues", title=f"Most frequent {f_mode}s"), use_container_width=True)
+            safe_plotly_chart(lambda: make_bar_figure(freq_df.head(20), x=f_mode.capitalize(), y="Frequency", title=f"Most frequent {f_mode}s"), use_container_width=True)
         st.dataframe(freq_df, use_container_width=True, hide_index=True)
-        st.download_button("Download full frequency list (CSV)", pd.DataFrame(freq_df_all.most_common(), columns=[f_mode, "freq"]).to_csv(index=False), file_name="frequencies.csv", mime="text/csv")
+        st.download_button(_translate_text("Download full frequency list (CSV)"), pd.DataFrame(freq_df_all.most_common(), columns=[f_mode, "freq"]).to_csv(index=False), file_name="frequencies.csv", mime="text/csv")
 # ============================================================
 # TAB 5: NEOLOGISMS & KEYNESS (reference corpus comparison)
 # ============================================================
 with tab5:
-    st.markdown("<h3 class='subheader'>Neologism / emergence spotter & keyness</h3>", unsafe_allow_html=True)
+    st.markdown(_translate_text("<h3 class='subheader'>Neologism / emergence spotter & keyness</h3>", allow_fragments=True), unsafe_allow_html=True)
     corpora_all = cached_corpora()
     other_opts = {c["id"]: c["name"] for c in corpora_all if c["id"] != corpus_id}
     if not other_opts:
-        st.info("Create a second corpus (e.g. your small test corpus or a general reference corpus) to enable neologism spotting and keyness.")
+        st.info(_translate_text("Create a second corpus (e.g. your small test corpus or a general reference corpus) to enable neologism spotting and keyness."))
     else:
-        ref_id = st.selectbox("Reference corpus (baseline)", list(other_opts), format_func=lambda i: other_opts[i], key="key_ref")
-        gran_neo = st.selectbox("Time slice for emergence", ["Year", "Quarter", "Month"], key="neo_gran")
+        ref_id = st.selectbox(_translate_text("Reference corpus (baseline)"), list(other_opts), format_func=lambda i: other_opts[i], key="key_ref")
+        gran_neo = st.selectbox(_translate_text("Time slice for emergence"), ["Year", "Quarter", "Month"], key="neo_gran")
         target_freq = corpus_word_freq(corpus_id, "word")
         ref_freq = corpus_word_freq(ref_id, "word")
         n_target = corpus_size(corpus_id)
@@ -1275,7 +1387,7 @@ with tab5:
 
         c1, c2 = st.columns(2)
         with c1:
-            st.markdown("#### Emergent words (late vs early period)")
+            st.markdown(_translate_text("#### Emergent words (late vs early period)", allow_fragments=True))
             if n_early and n_late:
                 rows = []
                 for w, f_late in late.most_common(300):
@@ -1292,10 +1404,10 @@ with tab5:
                 neo_df = pd.DataFrame(rows).head(25)
                 st.dataframe(neo_df, use_container_width=True, hide_index=True)
             else:
-                st.caption("Needs publish_date metadata on at least two time slices.")
+                st.caption(_translate_text("Needs publish_date metadata on at least two time slices."))
         with c2:
-            st.markdown("#### Keyness (log-likelihood, this corpus vs reference)")
-            min_freq = st.number_input("Min frequency in target corpus", 1, 50, 5, key="key_min")
+            st.markdown(_translate_text("#### Keyness (log-likelihood, this corpus vs reference)", allow_fragments=True))
+            min_freq = st.number_input(_translate_text("Min frequency in target corpus"), 1, 50, 5, key="key_min")
             rows = []
             for w, f1 in target_freq.items():
                 if f1 < min_freq:
@@ -1307,19 +1419,19 @@ with tab5:
             key_df = pd.DataFrame(rows).sort_values("LL", ascending=False).head(40) if rows else pd.DataFrame()
             if not key_df.empty:
                 st.dataframe(key_df, use_container_width=True, hide_index=True)
-                st.download_button("Download keyness (CSV)", key_df.to_csv(index=False), file_name="keyness.csv", mime="text/csv")
+                st.download_button(_translate_text("Download keyness (CSV)"), key_df.to_csv(index=False), file_name="keyness.csv", mime="text/csv")
             else:
-                st.caption("No terms reached LL >= 6.63 (p < 0.01). Lower the min frequency.")
+                st.caption(_translate_text("No terms reached LL >= 6.63 (p < 0.01). Lower the min frequency."))
 
 # ============================================================
 # TAB 6: SEMANTIC DRIFT & KEYWORDS IN TIME
 # ============================================================
 with tab6:
-    st.markdown("<h3 class='subheader'>Semantic drift & keyword-in-time tracker</h3>", unsafe_allow_html=True)
-    gran_d = st.selectbox("Granularity", ["Year", "Quarter", "Month"], key="drift_gran")
+    st.markdown(_translate_text("<h3 class='subheader'>Semantic drift & keyword-in-time tracker</h3>", allow_fragments=True), unsafe_allow_html=True)
+    gran_d = st.selectbox(_translate_text("Granularity"), ["Year", "Quarter", "Month"], key="drift_gran")
     sliced_d = slice_transcripts(transcripts, gran_d)
     if sliced_d.empty:
-        st.warning("Set publish_date metadata to use time tracking.")
+        st.warning(_translate_text("Set publish_date metadata to use time tracking."))
     else:
         sl = sorted(sliced_d["slice"].unique())
         col_name = "word_counts"
@@ -1331,7 +1443,7 @@ with tab6:
                 per_slice[r["slice"]][k] += int(v)
             sizes_d[r["slice"]] = sizes_d.get(r["slice"], 0) + sum(int(v) for v in (r[col_name] or {}).values())
 
-        st.markdown("#### Keywords in time (distinctive terms per slice)")
+        st.markdown(_translate_text("#### Keywords in time (distinctive terms per slice)", allow_fragments=True))
         global_freq = corpus_word_freq(corpus_id, "word")
         kw_rows = []
         for s in sl:
@@ -1344,10 +1456,10 @@ with tab6:
         st.dataframe(kw_df, use_container_width=True, hide_index=True)
 
         st.divider()
-        st.markdown("#### Semantic drift: collocates of a word over time")
-        drift_word = st.text_input("Word to track collocates for:", placeholder="e.g. europa", key="drift_word")
+        st.markdown(_translate_text("#### Semantic drift: collocates of a word over time", allow_fragments=True))
+        drift_word = st.text_input(_translate_text("Word to track collocates for:"), placeholder="e.g. europa", key="drift_word")
         span = st.slider("Collocate span (words each side)", 2, 10, 5, key="drift_span")
-        if drift_word and st.button("Compute drift", key="drift_go"):
+        if drift_word and st.button(_translate_text("Compute drift"), key="drift_go"):
             t2t = {t["id"]: t for t in transcripts}
             drift_data = {}
             for s in sl:
@@ -1368,7 +1480,7 @@ with tab6:
                     drift_rows.append({"Slice": s, "Collocate": w, "Co-occurrences": c})
             drift_df = pd.DataFrame(drift_rows)
             st.dataframe(drift_df, use_container_width=True, hide_index=True)
-            st.caption("Compare collocates across slices: changing collocates = semantic drift (e.g. 'europa' drifting from 'unia' to 'kryzys').")
+            st.caption(_translate_text("Compare collocates across slices: changing collocates = semantic drift (e.g. 'europa' drifting from 'unia' to 'kryzys')."))
             # heatmap
             top_coll = Counter()
             for c in drift_data.values():
@@ -1378,20 +1490,20 @@ with tab6:
                 hm = pd.DataFrame({s: {w: drift_data[s].get(w, 0) for w in top10} for s in sl})
                 safe_plotly_chart(lambda: px.imshow(hm, text_auto=True, aspect="auto", title=f"Collocates of '{drift_word}' across time slices"), use_container_width=True)
             else:
-                st.info(f"No collocates found for '{drift_word}' in this corpus. Check the spelling (the search is case-sensitive and matches the stored lowercase form).")
+                st.info(_translate_text(f"No collocates found for '{drift_word}' in this corpus. Check the spelling (the search is case-sensitive and matches the stored lowercase form)."))
 
 # ============================================================
 # TAB 7: LOANWORDS & ANGLICISMS
 # ============================================================
 with tab7:
-    st.markdown("<h3 class='subheader'>Loanword & anglicism tracker (Polish)</h3>", unsafe_allow_html=True)
+    st.markdown(_translate_text("<h3 class='subheader'>Loanword & anglicism tracker (Polish)</h3>", allow_fragments=True), unsafe_allow_html=True)
     ang = cached_anglicisms()
     ang_df = pd.DataFrame(ang)[["term", "category"]] if ang else pd.DataFrame(columns=["term", "category"])
-    st.caption("A stored list of English-origin items used in Polish. Extend it below; it persists for everyone.")
-    with st.expander("Add anglicism"):
-        a_term = st.text_input("Term", key="ang_term")
-        a_cat = st.text_input("Domain (e.g. tech, social media)", key="ang_cat")
-        if st.button("Add", key="ang_add") and a_term.strip():
+    st.caption(_translate_text("A stored list of English-origin items used in Polish. Extend it below; it persists for everyone."))
+    with st.expander(_translate_text("Add anglicism")):
+        a_term = st.text_input(_translate_text("Term"), key="ang_term")
+        a_cat = st.text_input(_translate_text("Domain (e.g. tech, social media)"), key="ang_cat")
+        if st.button(_translate_text("Add"), key="ang_add") and a_term.strip():
             db_insert("anglicisms", {"term": a_term.strip().lower(), "category": a_cat.strip() or "general"})
             clear_caches()
             st.rerun()
@@ -1402,15 +1514,15 @@ with tab7:
             counts.append({"Term": r["term"], "Domain": r["category"], "Count in corpus": c})
         ang_counts = pd.DataFrame(counts).sort_values("Count in corpus", ascending=False)
         shown = ang_counts[ang_counts["Count in corpus"] > 0]
-        st.markdown(f"#### {len(shown)} anglicisms found in this corpus")
+        st.markdown(_translate_text(f"#### {len(shown)} anglicisms found in this corpus", allow_fragments=True))
         if not shown.empty:
-            safe_plotly_chart(lambda: px.bar(shown.head(20), x="Term", y="Count in corpus", color="Domain", title="Anglicisms by frequency"), use_container_width=True)
+            safe_plotly_chart(lambda: make_bar_figure(shown.head(20), x="Term", y="Count in corpus", color="Domain", title="Anglicisms by frequency"), use_container_width=True)
         else:
-            st.info("None of the anglicisms from the list occurs in this corpus yet.")
+            st.info(_translate_text("None of the anglicisms from the list occurs in this corpus yet."))
         st.dataframe(shown, use_container_width=True, hide_index=True)
-        st.download_button("Download anglicisms (CSV)", ang_counts.to_csv(index=False), file_name="anglicisms.csv", mime="text/csv")
+        st.download_button(_translate_text("Download anglicisms (CSV)"), ang_counts.to_csv(index=False), file_name="anglicisms.csv", mime="text/csv")
         # per-slice trend of top anglicisms
-        gran_a = st.selectbox("Time granularity for anglicism trends", ["Year", "Quarter", "Month"], key="ang_gran")
+        gran_a = st.selectbox(_translate_text("Time granularity for anglicism trends"), ["Year", "Quarter", "Month"], key="ang_gran")
         sliced_a = slice_transcripts(transcripts, gran_a)
         if not sliced_a.empty and shown.head(5)["Term"].tolist():
             series_a = {}
@@ -1426,14 +1538,48 @@ with tab7:
             if a_rows:
                 safe_plotly_chart(lambda: px.line(pd.DataFrame(a_rows), x="slice", y="per_million", color="term", markers=True, title="Top anglicisms over time"), use_container_width=True)
 
+    st.divider()
+    st.markdown(_translate_text("#### Possible English-origin candidates from your Polish and English texts", allow_fragments=True))
+    st.caption(_translate_text("These are frequency-overlap candidates for manual review, not confirmed loanwords. Shared forms can be cognates, names, abbreviations, or coincidental matches."))
+    min_pl_freq = st.number_input(_translate_text("Minimum frequency in Polish texts"), min_value=1, max_value=100, value=2, key="ang_overlap_min")
+    polish_freq, english_freq = Counter(), Counter()
+    for tr in transcripts:
+        lang = (tr.get("language") or "pl").lower()
+        wc = tr.get("word_counts") or {}
+        if lang == "pl":
+            polish_freq.update({str(k).casefold(): int(v) for k, v in wc.items()})
+        elif lang == "en":
+            english_freq.update({str(k).casefold(): int(v) for k, v in wc.items()})
+    known_ang = {a["term"].casefold() for a in ang}
+    eng_stop = {"the", "a", "an", "and", "or", "but", "to", "of", "in", "on", "is", "are", "was", "were", "be", "it", "this", "that", "you", "we", "they", "i", "he", "she", "for", "with", "as", "at", "by", "from"}
+    overlap_rows = []
+    for term in (polish_freq.keys() & english_freq.keys()):
+        if (len(term) < 3 or term in eng_stop or term in POLISH_STOP or term in known_ang
+                or not re.search(r"[^\W\d_]", term, flags=re.UNICODE)
+                or polish_freq[term] < int(min_pl_freq) or english_freq[term] < 2):
+            continue
+        overlap_rows.append({"Possible candidate": term, "Polish frequency": polish_freq[term], "English frequency": english_freq[term]})
+    overlap_df = pd.DataFrame(overlap_rows).sort_values("Polish frequency", ascending=False) if overlap_rows else pd.DataFrame()
+    if overlap_df.empty:
+        st.info(_translate_text("No candidates yet. This comparison needs at least one pure Polish transcript and one pure English transcript in the same corpus."))
+    else:
+        st.dataframe(overlap_df.head(200), use_container_width=True, hide_index=True)
+        candidates_to_add = st.multiselect(_translate_text("Choose candidates to add to the anglicism list"), overlap_df["Possible candidate"].head(200).tolist(), key="ang_candidates_add")
+        if st.button(_translate_text("Add selected candidates to anglicism list"), key="ang_candidates_save"):
+            for term in candidates_to_add:
+                db_insert("anglicisms", {"term": term, "category": "candidate, review needed"})
+            clear_caches()
+            st.success(_translate_text(f"Added {len(candidates_to_add)} candidate(s). Review them in the anglicism list before treating them as established loans."))
+            st.rerun()
+
 # ============================================================
 # TAB 8: STANCE / SENTIMENT / MODALITY
 # ============================================================
 with tab8:
-    st.markdown("<h3 class='subheader'>Stance, sentiment & modality filter</h3>", unsafe_allow_html=True)
+    st.markdown(_translate_text("<h3 class='subheader'>Stance, sentiment & modality filter</h3>", allow_fragments=True), unsafe_allow_html=True)
     lex = cached_lexicon()
     if not lex:
-        st.info("Add terms in the Dictionaries tab first.")
+        st.info(_translate_text("Add terms in the Dictionaries tab first."))
     else:
         sent = {l["term"]: l["value"] for l in lex if l["lang"] == "pl" and l["category"] in ("positive", "negative")}
         epi = {l["term"] for l in lex if l["lang"] == "pl" and l["category"] == "epistemic"}
@@ -1441,12 +1587,12 @@ with tab8:
         agr = {l["term"] for l in lex if l["lang"] == "pl" and l["category"] == "stance_agree"}
         dis = {l["term"] for l in lex if l["lang"] == "pl" and l["category"] == "stance_disagree"}
 
-        st.markdown("Filter transcripts by stance / sentiment / modality profile:")
+        st.markdown(_translate_text("Filter transcripts by stance / sentiment / modality profile:", allow_fragments=True))
         c1, c2, c3 = st.columns(3)
-        want_sent = c1.selectbox("Sentiment tilt", ["any", "positive-lean", "negative-lean"], key="st_sent")
+        want_sent = c1.selectbox(_translate_text("Sentiment tilt"), ["any", "positive-lean", "negative-lean"], key="st_sent")
         want_epi = c2.slider("Min epistemic markers (hedging)", 0, 20, 0, key="st_epi")
         want_deo = c3.slider("Min deontic markers (obligation)", 0, 20, 0, key="st_deo")
-        want_stance = c1.selectbox("Stance", ["any", "agree-lean", "disagree-lean"], key="st_stance")
+        want_stance = c1.selectbox(_translate_text("Stance"), ["any", "agree-lean", "disagree-lean"], key="st_stance")
 
         results = []
         for t in transcripts:
@@ -1472,36 +1618,36 @@ with tab8:
             results.append({"Title": t["title"], "Positive": pos_n, "Negative": neg_n, "Epistemic": epi_n,
                             "Deontic": deo_n, "Agree": agr_n, "Disagree": dis_n})
         st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
-        st.caption("Counts come from the stored lexicon; edit it in the Dictionaries tab to refine the filter.")
+        st.caption(_translate_text("Counts come from the stored lexicon; edit it in the Dictionaries tab to refine the filter."))
 
 # ============================================================
 # TAB 9: STATISTICS & METADATA
 # ============================================================
 with tab9:
-    st.markdown("<h3 class='subheader'>Corpus statistics</h3>", unsafe_allow_html=True)
+    st.markdown(_translate_text("<h3 class='subheader'>Corpus statistics</h3>", allow_fragments=True), unsafe_allow_html=True)
     meta_fields = cached_metadata_fields()
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown("#### Tokens per text")
+        st.markdown(_translate_text("#### Tokens per text", allow_fragments=True))
         if transcripts:
             lengths = sorted([(t["title"], sum(int(v) for v in (t.get("word_counts") or {}).values())) for t in transcripts], key=lambda x: x[1])
             len_df = pd.DataFrame(lengths, columns=["text", "tokens"])
             if not len_df.empty and len_df["tokens"].sum() > 0:
-                safe_plotly_chart(lambda: px.barh(len_df, x="tokens", y="text", title="Tokens per text"), use_container_width=True)
+                safe_plotly_chart(lambda: make_bar_figure(len_df, x="tokens", y="text", orientation="h", title="Tokens per text"), use_container_width=True)
             else:
-                st.info("No token counts yet. Upload and index texts first.")
+                st.info(_translate_text("No token counts yet. Upload and index texts first."))
     with c2:
-        st.markdown("#### Vocabulary richness")
+        st.markdown(_translate_text("#### Vocabulary richness", allow_fragments=True))
         lm = corpus_word_freq(corpus_id, "lemma")
         n_tok = sum(lm.values())
         if n_tok:
-            st.metric("Tokens", f"{n_tok:,}")
-            st.metric("Types", f"{len(lm):,}")
-            st.metric("TTR", f"{len(lm) / n_tok:.4f}")
-            st.metric("Guiraud index", f"{len(lm) / math.sqrt(n_tok):.2f}")
+            st.metric(_translate_text("Tokens"), f"{n_tok:,}")
+            st.metric(_translate_text("Types"), f"{len(lm):,}")
+            st.metric(_translate_text("TTR"), f"{len(lm) / n_tok:.4f}")
+            st.metric(_translate_text("Guiraud index"), f"{len(lm) / math.sqrt(n_tok):.2f}")
 
     st.divider()
-    st.markdown("#### Metadata coverage")
+    st.markdown(_translate_text("#### Metadata coverage", allow_fragments=True))
     if transcripts:
         cov_rows = []
         for f in meta_fields:
@@ -1509,10 +1655,10 @@ with tab9:
             cov_rows.append({"Field": f["label"], "Mandatory": "yes" if f["mandatory"] else "no", "Filled": f"{filled}/{len(transcripts)}"})
         st.dataframe(pd.DataFrame(cov_rows), use_container_width=True, hide_index=True)
         df_all = pd.DataFrame([{f["field_name"]: t.get(f["field_name"]) for f in meta_fields} | {"title": t["title"]} for t in transcripts])
-        st.download_button("Download metadata table (CSV)", df_all.to_csv(index=False), file_name="metadata.csv", mime="text/csv")
+        st.download_button(_translate_text("Download metadata table (CSV)"), df_all.to_csv(index=False), file_name="metadata.csv", mime="text/csv")
 
     st.divider()
-    st.markdown("#### POS distribution")
+    st.markdown(_translate_text("#### POS distribution", allow_fragments=True))
     pos_total = Counter()
     for t in transcripts:
         pos_total.update({k: int(v) for k, v in (t.get("pos_counts") or {}).items()})
@@ -1521,5 +1667,78 @@ with tab9:
         if not pos_df.empty and pos_df["Count"].sum() > 0:
             safe_plotly_chart(lambda: px.pie(pos_df.head(12), values="Count", names="POS", title="POS distribution"), use_container_width=True)
 
+with tab10:
+    st.markdown(_translate_text("<h3 class='subheader'>Annotate a transcript using corpus resources</h3>", allow_fragments=True), unsafe_allow_html=True)
+    st.caption(_translate_text("Annotations are created from the stored anglicism list, research lexicon, selected corpus words, and POS tags. The highlighted preview and exported DOCX are copies; your source transcript is unchanged."))
+    if not transcripts:
+        st.info(_translate_text("Upload transcripts first."))
+    else:
+        transcript_ids = [t["id"] for t in transcripts]
+        transcript_by_id = {t["id"]: t for t in transcripts}
+        picked_id = st.selectbox(_translate_text("Transcript to annotate"), transcript_ids,
+                                 format_func=lambda i: f"{transcript_by_id[i]['title']} ({transcript_by_id[i].get('language') or 'pl'})",
+                                 key="annotation_transcript")
+        selected_transcript = transcript_by_id[picked_id]
+        annotation_text = selected_transcript.get("clean_text") or selected_transcript.get("raw_text") or ""
+        ann_lang = (selected_transcript.get("language") or "pl").lower()
+        allowed_lex_languages = {"pl", "en"} if "-" in ann_lang else {"en" if ann_lang == "en" else "pl"}
+
+        row_a, row_b = st.columns(2)
+        with row_a:
+            use_anglicisms = st.checkbox(_translate_text("Mark known anglicisms"), value=True, key="ann_anglicisms")
+            use_lexicon = st.checkbox(_translate_text("Mark sentiment, modality, and stance entries"), value=True, key="ann_lexicon")
+        with row_b:
+            use_dictionary = st.checkbox(_translate_text("Mark selected corpus-dictionary words"), value=False, key="ann_dictionary")
+            pos_choices = st.multiselect(_translate_text("Mark POS categories"), ["NOUN", "PROPN", "VERB", "ADJ", "ADV"], key="ann_pos")
+
+        annotation_terms = []
+        if use_anglicisms and (ann_lang.startswith("pl") or "-" in ann_lang):
+            for entry in cached_anglicisms():
+                tag = "Kandydat anglicyzmu" if "candidate" in str(entry.get("category", "")).casefold() else "Anglicyzm"
+                annotation_terms.append((entry["term"], tag))
+        if use_lexicon:
+            lex_categories = st.multiselect(
+                _translate_text("Lexicon categories"), ["positive", "negative", "epistemic", "deontic", "stance_agree", "stance_disagree", "custom"],
+                default=["positive", "negative", "epistemic", "deontic", "stance_agree", "stance_disagree"], key="ann_lex_categories")
+            lex_label = {"positive": "Sentyment pozytywny", "negative": "Sentyment negatywny",
+                         "epistemic": "Modalność epistemiczna", "deontic": "Modalność deontyczna",
+                         "stance_agree": "Stanowisko: zgoda", "stance_disagree": "Stanowisko: niezgoda", "custom": "Termin własny"}
+            for entry in cached_lexicon():
+                if entry.get("lang", "pl") in allowed_lex_languages and entry.get("category") in lex_categories:
+                    annotation_terms.append((entry["term"], lex_label.get(entry["category"], "Termin własny")))
+        if use_dictionary:
+            dictionary_options = []
+            for word, count in Counter(selected_transcript.get("word_counts") or {}).most_common(500):
+                term = str(word).casefold()
+                if re.search(r"[^\W\d_]", term, flags=re.UNICODE) and term not in POLISH_STOP:
+                    dictionary_options.append(term)
+            chosen_dictionary_words = st.multiselect(_translate_text("Corpus terms to highlight"), dictionary_options[:300], key="ann_dict_terms")
+            annotation_terms.extend((word, "Hasło korpusowe") for word in chosen_dictionary_words)
+        if pos_choices:
+            pos_tokens = fetch_all("tokens", select="word,pos", eq={"transcript_id": picked_id})
+            pos_labels = {p: f"Część mowy: {p}" for p in pos_choices}
+            for tok in pos_tokens:
+                if tok.get("pos") in pos_choices:
+                    annotation_terms.append((tok.get("word", ""), pos_labels[tok["pos"]]))
+
+        if st.button(_translate_text("Generate annotations"), type="primary", key="ann_generate"):
+            spans = find_annotation_spans(annotation_text, annotation_terms)
+            st.session_state["annotation_result"] = {"transcript_id": picked_id, "text": annotation_text, "spans": spans}
+        result = st.session_state.get("annotation_result")
+        if result and result.get("transcript_id") == picked_id:
+            spans = result["spans"]
+            if not spans:
+                st.info(_translate_text("No matches found for the selected annotation layers."))
+            else:
+                st.metric(_translate_text("Annotated occurrences"), len(spans))
+                st.markdown(annotation_html(annotation_text, spans), unsafe_allow_html=True)
+                spans_df = pd.DataFrame(spans)[["start", "end", "term", "label"]]
+                st.dataframe(spans_df, use_container_width=True, hide_index=True)
+                st.download_button(_translate_text("Download annotation spans (CSV)"), spans_df.to_csv(index=False),
+                                   file_name="annotation_spans.csv", mime="text/csv")
+                st.download_button(_translate_text("Download annotated Word document"), annotation_docx_bytes(annotation_text, spans, selected_transcript["title"]),
+                                   file_name=f"{re.sub(r'[^\w-]+', '_', selected_transcript['title'])}_annotated.docx",
+                                   mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+
 st.divider()
-st.caption("Linguistic Corpus Engine v3.0 | Streamlit + spaCy + Supabase. Data persists in the cloud; anyone with the app link can browse, search and analyze. Editing/deleting is available to all viewers; use Supabase RLS if you need to restrict this.")
+st.caption(_translate_text("Linguistic Corpus Engine v3.0 | Streamlit + spaCy + Supabase. Data persists in the cloud; anyone with the app link can browse, search and analyze. Editing/deleting is available to all viewers; use Supabase RLS if you need to restrict this."))
