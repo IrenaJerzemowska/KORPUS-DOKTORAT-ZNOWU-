@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import re, os, io, json, math, unicodedata, html
+import re, os, io, json, math, unicodedata, html, uuid, mimetypes
 from datetime import datetime, date
 from collections import Counter, defaultdict
 import plotly.express as px
@@ -150,6 +150,8 @@ PL_TRANSLATIONS.update({
     "No trend points can be plotted yet. Add dated transcripts containing searchable words, or change the selected terms.": "Brak punktów do wykreślenia trendu. Dodaj datowane transkrypcje z tekstem albo zmień wybrane terminy.",
     "Add anglicism": "Dodaj anglicyzm", "Types": "Typy", "Set publish_date metadata to use time tracking.": "Uzupełnij datę publikacji, aby włączyć śledzenie zmian w czasie.",
     "Text Annotations": "Anotacja tekstu", "Annotate transcript": "Anotuj transkrypcję", "Selected transcript": "Wybrana transkrypcja",
+    "Prepare original file download": "Przygotuj pobranie oryginalnego pliku", "Download original file": "Pobierz oryginalny plik",
+    "No original uploaded file is associated with this transcript.": "Ta transkrypcja nie ma powiązanego oryginalnego pliku.",
     "Known anglicisms": "Znane anglicyzmy", "Annotate sentiment / modality / stance lexicon": "Anotuj leksykon sentymentu / modalności / stanowiska",
     "Lexicon categories to annotate": "Kategorie leksykonu do anotacji", "Annotate selected corpus-dictionary entries": "Anotuj wybrane hasła słownika korpusowego",
     "Corpus dictionary terms": "Hasła słownika korpusowego", "Annotate POS tags": "Anotuj części mowy", "POS tags to annotate": "Części mowy do anotacji",
@@ -166,6 +168,12 @@ PL_TRANSLATIONS.update({
 })
 
 _TRANSLATION_PATTERNS = [
+    (re.compile(r"^Original upload stored: (.*)$"), r"Zapisano oryginalny plik: \1"),
+    (re.compile(r"^Could not download the original file: (.*)$"), r"Nie udało się pobrać oryginalnego pliku: \1"),
+    (re.compile(r"^Could not delete the stored original file; transcript was retained: (.*)$"), r"Nie udało się usunąć oryginalnego pliku; transkrypcję zachowano: \1"),
+    (re.compile(r"^Could not remove original files; corpus was retained: (.*)$"), r"Nie udało się usunąć oryginalnych plików; korpus zachowano: \1"),
+    (re.compile(r"^Could not read the stored original file, so the edited transcript was not saved: (.*)$"), r"Nie udało się odczytać oryginalnego pliku, więc nie zapisano zmienionej transkrypcji: \1"),
+    (re.compile(r"^Could not read the stored original file, so re-tokenization was cancelled: (.*)$"), r"Nie udało się odczytać oryginalnego pliku, więc anulowano ponowną tokenizację: \1"),
     (re.compile(r"^No collocates found for '(.+)' in this corpus\. Check the spelling \(the search is case-sensitive and matches the stored lowercase form\)\.$"), r"Nie znaleziono kolokatów dla „\1” w korpusie. Sprawdź pisownię; wyszukiwanie uwzględnia zapis z bazy."),
     (re.compile(r"^Added (\d+) candidate\(s\)\. Review them in the anglicism list before treating them as established loans\.$"), r"Dodano kandydatów: \1. Sprawdź ich na liście anglicyzmów przed uznaniem za zapożyczenia."),
     (re.compile(r"^spaCy could not initialize \((.*)\)\. Using regex tokenization without POS tags for this run\. Check the pinned compatible dependencies in requirements\.txt\.$"), r"Nie udało się uruchomić spaCy (\1). Tymczasowo używana jest tokenizacja bez oznaczania części mowy. Sprawdź zgodność pakietów w pliku requirements.txt."),
@@ -308,6 +316,7 @@ def init_supabase() -> Client:
         st.stop()
 
 supabase = init_supabase()
+ORIGINALS_BUCKET = "corpus-originals"
 
 # ============================================================
 # DB HELPERS  (fix #1: paginate everything, REST caps at 1000 rows)
@@ -337,7 +346,7 @@ def cached_corpora():
 
 @st.cache_data(ttl=300, show_spinner=False)
 def cached_transcripts(corpus_id):
-    return fetch_all("transcriptions", select="id,title,language,video_url,publish_date,channel,duration_seconds,speaker,genre,raw_text,clean_text,lemma_counts,word_counts,pos_counts,created_at", eq={"corpus_id": corpus_id}, order="created_at", desc=True)
+    return fetch_all("transcriptions", select="id,title,language,video_url,publish_date,channel,duration_seconds,speaker,genre,raw_text,clean_text,lemma_counts,word_counts,pos_counts,source_file_path,source_file_name,source_file_mime,created_at", eq={"corpus_id": corpus_id}, order="created_at", desc=True)
 
 @st.cache_data(ttl=300, show_spinner=False)
 def cached_metadata_fields():
@@ -511,8 +520,13 @@ def build_counts(tokens):
     pos_c = Counter(t["pos"] for t in tokens)
     return lemma_c, word_c, pos_c
 
-def save_transcript(corpus_id: int, title: str, lang: str, raw_text: str, metadata: dict | None = None, video_url: str = "", nlp_lang: str | None = None):
+def save_transcript(corpus_id: int, title: str, lang: str, raw_text: str, metadata: dict | None = None,
+                    video_url: str = "", nlp_lang: str | None = None,
+                    source_file_bytes: bytes | None = None, source_file_name: str | None = None,
+                    source_file_mime: str | None = None):
+    """Save a transcript, its tokens, and optionally its original uploaded file in Supabase Storage."""
     t_id = None
+    object_path = None
     try:
         segments = parse_timed_segments(raw_text)
         clean_txt = clean_and_normalize(" ".join(s for s, _ in segments))
@@ -530,6 +544,21 @@ def save_transcript(corpus_id: int, title: str, lang: str, raw_text: str, metada
             st.error(_translate_text("Failed to insert transcript (check that schema.sql was run)."))
             return 0
         t_id = res[0]["id"]
+
+        # Preserve the exact uploaded file bytes separately from extracted text.
+        if source_file_bytes is not None and source_file_name:
+            safe_name = re.sub(r"[^\w.-]+", "_", source_file_name).strip("._") or "source_file"
+            object_path = f"{corpus_id}/{t_id}/{uuid.uuid4().hex}_{safe_name}"
+            content_type = source_file_mime or mimetypes.guess_type(source_file_name)[0] or "application/octet-stream"
+            supabase.storage.from_(ORIGINALS_BUCKET).upload(
+                object_path, source_file_bytes,
+                file_options={"content-type": content_type, "upsert": "false"},
+            )
+            supabase.table("transcriptions").update({
+                "source_file_path": object_path,
+                "source_file_name": source_file_name,
+                "source_file_mime": content_type,
+            }).eq("id", t_id).execute()
 
         token_rows = []
         idx_base = 0
@@ -559,7 +588,12 @@ def save_transcript(corpus_id: int, title: str, lang: str, raw_text: str, metada
         clear_caches()
         return len(token_rows)
     except Exception as e:
-        # Avoid leaving a transcript row with no tokens if processing fails midway.
+        # Roll back database rows and any uploaded object if processing fails.
+        if object_path:
+            try:
+                supabase.storage.from_(ORIGINALS_BUCKET).remove([object_path])
+            except Exception:
+                pass
         if t_id is not None:
             try:
                 supabase.table("tokens").delete().eq("transcript_id", t_id).execute()
@@ -570,16 +604,42 @@ def save_transcript(corpus_id: int, title: str, lang: str, raw_text: str, metada
         st.error(_translate_text(f"Error saving transcript: {e}"))
         return 0
 
+def fetch_original_bytes(source_path: str) -> bytes:
+    """Download one original upload from the private Storage bucket."""
+    content = supabase.storage.from_(ORIGINALS_BUCKET).download(source_path)
+    return bytes(content) if not isinstance(content, bytes) else content
+
 def delete_transcript(t_id):
+    try:
+        row_res = supabase.table("transcriptions").select("source_file_path").eq("id", t_id).execute()
+        source_path = row_res.data[0].get("source_file_path") if row_res.data else None
+        if source_path:
+            supabase.storage.from_(ORIGINALS_BUCKET).remove([source_path])
+    except Exception as e:
+        st.error(_translate_text(f"Could not delete the stored original file; transcript was retained: {e}"))
+        return False
+    dl = st.session_state.get("original_file_download")
+    if dl and dl.get("transcript_id") == t_id:
+        st.session_state.pop("original_file_download", None)
     db_delete("tokens", "transcript_id", t_id)
     db_delete("transcriptions", "id", t_id)
     clear_caches()
+    return True
 
 def delete_corpus(corpus_id):
+    try:
+        rows = fetch_all("transcriptions", select="source_file_path", eq={"corpus_id": corpus_id})
+        paths = [row["source_file_path"] for row in rows if row.get("source_file_path")]
+        for i in range(0, len(paths), 100):
+            supabase.storage.from_(ORIGINALS_BUCKET).remove(paths[i:i+100])
+    except Exception as e:
+        st.error(_translate_text(f"Could not remove original files; corpus was retained: {e}"))
+        return False
     db_delete("tokens", "corpus_id", corpus_id)
     db_delete("transcriptions", "corpus_id", corpus_id)
     db_delete("corpora", "id", corpus_id)
     clear_caches()
+    return True
 
 def update_transcript(t_id, updates: dict):
     supabase.table("transcriptions").update(updates).eq("id", t_id).execute()
@@ -871,10 +931,10 @@ with st.sidebar:
         if st.session_state.get("confirm_delete"):
             if st.checkbox(_translate_text("I understand this deletes all texts and tokens")):
                 if st.button(_translate_text("Confirm delete"), type="primary"):
-                    delete_corpus(sel)
-                    st.session_state.corpus_id = None
-                    st.session_state.confirm_delete = False
-                    st.rerun()
+                    if delete_corpus(sel):
+                        st.session_state.corpus_id = None
+                        st.session_state.confirm_delete = False
+                        st.rerun()
 
     st.divider()
     st.markdown(_translate_text("### Create new corpus", allow_fragments=True))
@@ -996,13 +1056,16 @@ with tab1:
                 added = 0
                 for f in up:
                     try:
+                        original_file_bytes = f.getvalue()
+                        original_file_name = f.name
+                        original_file_mime = f.type or mimetypes.guess_type(f.name)[0] or "application/octet-stream"
                         if f.name.lower().endswith(".docx"):
                             from docx import Document
                             from docx.oxml.text.paragraph import CT_P
                             from docx.oxml.table import CT_Tbl
                             from docx.text.paragraph import Paragraph
                             from docx.table import Table
-                            doc = Document(io.BytesIO(f.getvalue()))
+                            doc = Document(io.BytesIO(original_file_bytes))
                             blocks = []
                             # Walk the document body in order so paragraphs and tables stay in sequence.
                             for element in doc.element.body.iterchildren():
@@ -1022,12 +1085,14 @@ with tab1:
                                 st.warning(_translate_text(f"{f.name}: no extractable text found, skipped."))
                                 continue
                         else:
-                            content = f.getvalue().decode("utf-8-sig", errors="replace")
+                            content = original_file_bytes.decode("utf-8-sig", errors="replace")
                     except Exception as e:
                         st.error(_translate_text(f"{f.name}: could not extract text ({e})"))
                         continue
                     tname = re.sub(r"\.(docx|txt|srt|vtt)$", "", f.name, flags=re.I)
-                    n = save_transcript(corpus_id, tname, transcript_lang, content, metadata=md, video_url=video_url, nlp_lang=primary_nlp_language(transcript_lang))
+                    n = save_transcript(corpus_id, tname, transcript_lang, content, metadata=md, video_url=video_url,
+                                        nlp_lang=primary_nlp_language(transcript_lang), source_file_bytes=original_file_bytes,
+                                        source_file_name=original_file_name, source_file_mime=original_file_mime)
                     added += 1 if n else 0
                 if added:
                     st.success(_translate_text(f"Added {added} file(s)."))
@@ -1047,6 +1112,22 @@ with tab1:
                 e_lang = TEXT_LANGUAGE_OPTIONS[e_lang_label]
                 e_url = st.text_input(_translate_text("Video URL"), value=t.get("video_url") or "", key=f"eu_{t['id']}")
                 e_text = st.text_area(_translate_text("Clean text"), value=t.get("clean_text") or "", height=140, key=f"ex_{t['id']}")
+                if t.get("source_file_path"):
+                    st.caption(_translate_text(f"Original upload stored: {t.get('source_file_name') or 'source file'}"))
+                    if st.button(_translate_text("Prepare original file download"), key=f"prep_original_{t['id']}"):
+                        try:
+                            st.session_state["original_file_download"] = {
+                                "transcript_id": t["id"], "bytes": fetch_original_bytes(t["source_file_path"]),
+                                "name": t.get("source_file_name") or "original_file", "mime": t.get("source_file_mime") or "application/octet-stream",
+                            }
+                        except Exception as e:
+                            st.error(_translate_text(f"Could not download the original file: {e}"))
+                    original_download = st.session_state.get("original_file_download")
+                    if original_download and original_download.get("transcript_id") == t["id"]:
+                        st.download_button(_translate_text("Download original file"), original_download["bytes"],
+                                           file_name=original_download["name"], mime=original_download["mime"], key=f"download_original_{t['id']}")
+                else:
+                    st.caption(_translate_text("No original uploaded file is associated with this transcript."))
                 e_md = {}
                 for f in meta_fields:
                     cur = t.get(f["field_name"])
@@ -1067,21 +1148,43 @@ with tab1:
                     if retext:
                         updates["clean_text"] = e_text
                         updates["raw_text"] = e_text
-                    update_transcript(t["id"], updates)
-                    if retext:
-                        n = save_transcript(corpus_id, e_title, e_lang, e_text, metadata=updates, video_url=e_url, nlp_lang=primary_nlp_language(e_lang))
-                        delete_transcript(t["id"])  # old tokens
-                        st.success(_translate_text("Text and tokens re-indexed."))
+                        source_bytes = None
+                        if t.get("source_file_path"):
+                            try:
+                                source_bytes = fetch_original_bytes(t["source_file_path"])
+                            except Exception as e:
+                                st.error(_translate_text(f"Could not read the stored original file, so the edited transcript was not saved: {e}"))
+                                st.stop()
+                        n = save_transcript(corpus_id, e_title, e_lang, e_text, metadata=updates, video_url=e_url,
+                                            nlp_lang=primary_nlp_language(e_lang), source_file_bytes=source_bytes,
+                                            source_file_name=t.get("source_file_name"), source_file_mime=t.get("source_file_mime"))
+                        if n:
+                            delete_transcript(t["id"])
+                            st.success(_translate_text("Text and tokens re-indexed."))
                     else:
+                        update_transcript(t["id"], updates)
                         st.success(_translate_text("Saved."))
                     st.rerun()
                 if cB.button(_translate_text("Re-tokenize"), key=f"rt_{t['id']}"):
-                    delete_transcript(t["id"])
-                    save_transcript(corpus_id, t["title"], t.get("language") or CORPUS_LANG, t.get("raw_text") or t.get("clean_text") or "", metadata={k: t.get(k) for k in [f["field_name"] for f in meta_fields]}, video_url=t.get("video_url") or "", nlp_lang=primary_nlp_language(t.get("language") or CORPUS_LANG))
-                    st.rerun()
+                    source_bytes = None
+                    if t.get("source_file_path"):
+                        try:
+                            source_bytes = fetch_original_bytes(t["source_file_path"])
+                        except Exception as e:
+                            st.error(_translate_text(f"Could not read the stored original file, so re-tokenization was cancelled: {e}"))
+                            st.stop()
+                    n = save_transcript(corpus_id, t["title"], t.get("language") or CORPUS_LANG,
+                                        t.get("raw_text") or t.get("clean_text") or "",
+                                        metadata={k: t.get(k) for k in [f["field_name"] for f in meta_fields]},
+                                        video_url=t.get("video_url") or "", nlp_lang=primary_nlp_language(t.get("language") or CORPUS_LANG),
+                                        source_file_bytes=source_bytes, source_file_name=t.get("source_file_name"), source_file_mime=t.get("source_file_mime"))
+                    if n:
+                        delete_transcript(t["id"])
+                        st.success(_translate_text("Text and tokens re-indexed."))
+                        st.rerun()
                 if cC.button(_translate_text("Delete"), key=f"dl_{t['id']}", type="primary"):
-                    delete_transcript(t["id"])
-                    st.rerun()
+                    if delete_transcript(t["id"]):
+                        st.rerun()
     else:
         st.info(_translate_text("No texts yet."))
 
