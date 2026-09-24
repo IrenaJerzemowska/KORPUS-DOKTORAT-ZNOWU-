@@ -90,7 +90,8 @@ HINTS = {
     "42501": "Row-level security rejected the write. Run schema_fix.sql in the Supabase SQL Editor (it re-creates the access policies and grants).",
     "PGRST204": "A column is missing from a table (usually the table was created earlier with an older definition). Run schema_migrate.sql in the Supabase SQL Editor - it adds all missing columns without deleting data. If the error still shows a column that does exist, reload the API schema: Supabase Dashboard > Settings > API > 'Reload schema' (or wait 1-2 minutes for the cache to refresh).",
     "PGRST205": "A table is missing in the database. Run schema.sql in the Supabase SQL Editor first.",
-    "23505": "That name already exists. Choose a different name.",
+    "23505": ("A duplicate-name conflict: if it mentions 'corpora', that corpus name already exists - choose a different name. "
+               "If it mentions 'anglicisms_term_key' or 'lexicon', it is a harmless background dictionary-seeding duplicate and can be ignored."),
     "23502": "A required field was empty.",
     "42P01": "The table does not exist. Run schema.sql in the Supabase SQL Editor first.",
     "PGRST301": "The API key was rejected. Check SUPABASE_KEY: it must be the anon public key from Supabase > Project Settings > API.",
@@ -365,21 +366,34 @@ DEFAULT_ANGLICISMS = [
 
 @st.cache_data(ttl=600, show_spinner=False)
 def ensure_seed_data():
+    """Seed default metadata schema, lexicon and anglicisms. Silent and idempotent:
+    uses upsert on the unique columns so re-runs and duplicate seeds never error."""
     try:
         existing = {f["field_name"] for f in fetch_all("metadata_fields")}
-        for name, label, ftype, mandatory in DEFAULT_METADATA_FIELDS:
-            if name not in existing:
-                db_insert("metadata_fields", {"field_name": name, "label": label, "field_type": ftype, "mandatory": mandatory, "options": DEFAULT_GENRES if ftype == "select" else None})
+        new_fields = [{"field_name": n, "label": lb, "field_type": ft, "mandatory": m,
+                       "options": DEFAULT_GENRES if ft == "select" else None}
+                      for n, lb, ft, m in DEFAULT_METADATA_FIELDS if n not in existing]
+        if new_fields:
+            supabase.table("metadata_fields").upsert(new_fields, on_conflict="field_name").execute()
+
         lex = {(l["term"], l["category"]) for l in cached_lexicon()}
-        for term, lang, cat, val in DEFAULT_LEXICON:
-            if (term, cat) not in lex:
-                db_insert("lexicon", {"term": term, "lang": lang, "category": cat, "value": val})
+        new_lex = [{"term": t, "lang": lg, "category": c, "value": v}
+                   for t, lg, c, v in DEFAULT_LEXICON if (t, c) not in lex]
+        if new_lex:
+            supabase.table("lexicon").upsert(new_lex, on_conflict="term").execute()
+
         ang = {a["term"] for a in cached_anglicisms()}
-        for term, cat in DEFAULT_ANGLICISMS:
-            if term not in ang:
-                db_insert("anglicisms", {"term": term, "category": cat})
+        seen = set()
+        new_ang = []
+        for term, cat in DEFAULT_ANGLICISMS:   # dedupe within the seed list itself
+            if term not in ang and term not in seen:
+                new_ang.append({"term": term, "category": cat})
+                seen.add(term)
+        if new_ang:
+            supabase.table("anglicisms").upsert(new_ang, on_conflict="term").execute()
     except Exception as e:
-        st.warning(f"Seeding skipped (run schema.sql first): {e}")
+        # seeding must never block the UI; tables may still be missing
+        st.warning(f"Seeding skipped (run schema_migrate.sql first): {e}")
 
 POLISH_STOP = set("i w na z z do o a że nie się to jest jak co ale or oraz by dla pod nad za od przy przez który która które czym gdy gdyż więc czyli też już jeszcze bardzo tylko nawet tam tu tuż no well oraz albo lub niż bez niż".split())
 POLISH_DIACRITICS = set("ąćęłńóśźż")
