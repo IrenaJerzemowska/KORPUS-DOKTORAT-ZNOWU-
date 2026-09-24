@@ -608,7 +608,7 @@ with tab1:
                     st.success(f"Saved. {n:,} tokens indexed.")
                     st.rerun()
     else:
-        up = st.file_uploader("Upload .txt / .srt / .vtt (batch: select multiple)", type=["txt", "srt", "vtt"], accept_multiple_files=True)
+        up = st.file_uploader("Upload .docx / .txt / .srt / .vtt (batch: select multiple)", type=["docx", "txt", "srt", "vtt"], accept_multiple_files=True)
         if up:
             transcript_lang = choose_transcript_language("file_language")
             md = metadata_form("file")
@@ -620,11 +620,37 @@ with tab1:
                 added = 0
                 for f in up:
                     try:
-                        content = f.read().decode("utf-8-sig", errors="replace")
+                        if f.name.lower().endswith(".docx"):
+                            from docx import Document
+                            from docx.oxml.text.paragraph import CT_P
+                            from docx.oxml.table import CT_Tbl
+                            from docx.text.paragraph import Paragraph
+                            from docx.table import Table
+                            doc = Document(io.BytesIO(f.getvalue()))
+                            blocks = []
+                            # Walk the document body in order so paragraphs and tables stay in sequence.
+                            for element in doc.element.body.iterchildren():
+                                if isinstance(element, CT_P):
+                                    text = Paragraph(element, doc).text.strip()
+                                    if text:
+                                        blocks.append(text)
+                                elif isinstance(element, CT_Tbl):
+                                    table = Table(element, doc)
+                                    for row in table.rows:
+                                        cells = [cell.text.strip().replace("\n", " ") for cell in row.cells]
+                                        row_text = " | ".join(cell for cell in cells if cell)
+                                        if row_text:
+                                            blocks.append(row_text)
+                            content = "\n".join(blocks)
+                            if not content.strip():
+                                st.warning(f"{f.name}: no extractable text found, skipped.")
+                                continue
+                        else:
+                            content = f.getvalue().decode("utf-8-sig", errors="replace")
                     except Exception as e:
-                        st.error(f"{f.name}: {e}")
+                        st.error(f"{f.name}: could not extract text ({e})")
                         continue
-                    tname = re.sub(r"\.(txt|srt|vtt)$", "", f.name, flags=re.I)
+                    tname = re.sub(r"\.(docx|txt|srt|vtt)$", "", f.name, flags=re.I)
                     n = save_transcript(corpus_id, tname, transcript_lang, content, metadata=md, video_url=video_url, nlp_lang=primary_nlp_language(transcript_lang))
                     added += 1 if n else 0
                 if added:
