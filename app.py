@@ -7,6 +7,10 @@ from collections import Counter, defaultdict
 import plotly.express as px
 import plotly.graph_objects as go
 from supabase import create_client, Client
+try:
+    from postgrest.exceptions import APIError
+except ImportError:
+    APIError = Exception
 
 # ============================================================
 # CONFIG
@@ -82,18 +86,48 @@ def cached_anglicisms():
 def clear_caches():
     st.cache_data.clear()
 
+HINTS = {
+    "42501": "Row-level security rejected the write. Run schema_fix.sql in the Supabase SQL Editor (it re-creates the access policies and grants).",
+    "PGRST205": "A table is missing in the database. Run schema.sql in the Supabase SQL Editor first.",
+    "23505": "That name already exists. Choose a different name.",
+    "23502": "A required field was empty.",
+    "42P01": "The table does not exist. Run schema.sql in the Supabase SQL Editor first.",
+    "PGRST301": "The API key was rejected. Check SUPABASE_KEY: it must be the anon public key from Supabase > Project Settings > API.",
+}
+
+def show_db_error(e):
+    code = getattr(e, "code", "") or ""
+    msg = getattr(e, "message", None) or str(e)
+    st.error(f"Database error [{code or 'unknown'}]: {msg}")
+    for k, hint in HINTS.items():
+        if code == k or (not code and k in msg):
+            st.info(hint)
+            break
+
 def db_insert(table, rows, chunk=900):
-    """Insert rows in chunks; rows may be a dict or list of dicts. Returns inserted data."""
+    """Insert rows in chunks; rows may be a dict or list of dicts. Returns inserted data ([] on failure)."""
     if isinstance(rows, dict):
         rows = [rows]
     inserted = []
     for i in range(0, len(rows), chunk):
-        r = supabase.table(table).insert(rows[i:i+chunk]).execute()
-        inserted.extend(r.data or [])
+        try:
+            r = supabase.table(table).insert(rows[i:i+chunk]).execute()
+            inserted.extend(r.data or [])
+        except APIError as e:
+            show_db_error(e)
+            return []
+        except Exception as e:
+            st.error(f"Database error: {e}")
+            return []
     return inserted
 
 def db_delete(table, column, value):
-    supabase.table(table).delete().eq(column, value).execute()
+    try:
+        supabase.table(table).delete().eq(column, value).execute()
+    except APIError as e:
+        show_db_error(e)
+    except Exception as e:
+        st.error(f"Database error: {e}")
 
 # ============================================================
 # NLP (fix #6: spaCy models come from requirements.txt; graceful fallback)
@@ -428,13 +462,16 @@ with st.sidebar:
     new_desc = st.text_area("Description", key="new_corpus_desc", height=70)
     new_lang = st.selectbox("Main language", list(SPACY_MODELS), format_func=lambda l: {"pl": "Polish", "en": "English", "de": "German", "fr": "French", "es": "Spanish", "zh": "Chinese"}[l])
     if st.button("Create corpus", type="primary", use_container_width=True):
-        if new_name.strip():
-            db_insert("corpora", {"name": new_name.strip(), "description": new_desc, "language": new_lang, "created_at": datetime.now().isoformat(), "token_count": 0})
-            clear_caches()
-            st.success(f"Corpus '{new_name}' created.")
-            st.rerun()
-        else:
+        if not new_name.strip():
             st.error("Enter a corpus name.")
+        elif any(c["name"].lower() == new_name.strip().lower() for c in corpora):
+            st.error(f"A corpus named '{new_name.strip()}' already exists. Pick another name.")
+        else:
+            created = db_insert("corpora", {"name": new_name.strip(), "description": new_desc, "language": new_lang, "created_at": datetime.now().isoformat(), "token_count": 0})
+            if created:
+                clear_caches()
+                st.success(f"Corpus '{new_name.strip()}' created.")
+                st.rerun()
 
 corpus_id = st.session_state.get("corpus_id")
 if not corpus_id:
