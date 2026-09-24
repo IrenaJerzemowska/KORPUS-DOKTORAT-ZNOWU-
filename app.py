@@ -111,9 +111,26 @@ PL_TRANSLATIONS = {
     "Add terms in the Dictionaries tab first.": "Najpierw dodaj terminy w zakładce Słowniki.",
     "Upload texts first.": "Najpierw prześlij teksty.", "No texts yet.": "Nie dodano jeszcze tekstów.",
     "Corpus Management": "Zarządzanie korpusem", "Create new corpus": "Utwórz nowy korpus",
+    "Dictionary generated from uploaded texts": "Słownik generowany na podstawie przesłanych tekstów",
+    "This corpus-derived word list updates from the texts stored in the corpus. It reports observed forms or lemmas, frequencies, and document coverage. It does not invent definitions; add definitions manually in your research notes or lexicon.": "Ta lista słów jest tworzona na podstawie tekstów zapisanych w korpusie. Zawiera zaobserwowane formy lub lematy, częstość oraz liczbę tekstów, w których występują. Definicje nie są generowane automatycznie; dodaj je ręcznie w notatkach badawczych lub leksykonie.",
+    "Upload texts first to generate a corpus dictionary.": "Aby wygenerować słownik korpusowy, najpierw prześlij teksty.",
+    "Dictionary language": "Język słownika", "All transcript languages": "Wszystkie języki transkrypcji", "Mixed Polish-English": "Polski i angielski (tekst mieszany)",
+    "Entry type": "Typ hasła", "Minimum frequency": "Minimalna częstość", "Include common function words": "Uwzględnij częste wyrazy funkcyjne",
+    "Filter entries": "Filtruj hasła", "Type a word or part of a word": "Wpisz wyraz lub jego fragment",
+    "No entries match these filters. Lower the minimum frequency or include common words.": "Żadne hasło nie spełnia wybranych kryteriów. Zmniejsz minimalną częstość lub uwzględnij częste wyrazy.",
+    "Maximum dictionary entries shown": "Maksymalna liczba wyświetlanych haseł", "Dictionary entries": "Liczba haseł słownika",
+    "Download corpus dictionary (CSV)": "Pobierz słownik korpusowy (CSV)", "Show concordance examples for an entry": "Pokaż przykłady konkordancji dla hasła", "Show examples": "Pokaż przykłady",
+    "No indexed contexts are available for this entry yet.": "Brak zaindeksowanych kontekstów dla tego hasła.",
+    "Research lexicon: sentiment, modality, and stance": "Leksykon badawczy: sentyment, modalność i stanowisko",
+    "The corpus-generated dictionary above is built from your uploaded texts. This editable lexicon stores manually classified terms used by the stance and sentiment filters.": "Powyższy słownik korpusowy powstaje na podstawie przesłanych tekstów. Ten edytowalny leksykon przechowuje ręcznie sklasyfikowane terminy używane w filtrach stanowiska i sentymentu.",
+    "Entry": "Hasło", "Language": "Język", "Texts": "Teksty", "Per million": "Na milion", "Frequency": "Częstość", "Left context": "Kontekst lewy", "Right context": "Kontekst prawy",
+    "No trend points can be plotted yet. Add dated transcripts containing searchable words, or change the selected terms.": "Brak punktów do wykreślenia trendu. Dodaj transkrypcje z datami i tekstem albo zmień wybrane terminy.",
+    "Could not draw the trend chart for this selection: ": "Nie udało się narysować wykresu trendu dla tego wyboru: ",
 }
 
 _TRANSLATION_PATTERNS = [
+    (re.compile(r"^Could not draw the trend chart for this selection: (.*)$"), r"Nie udało się narysować wykresu trendu dla tego wyboru: \1"),
+    (re.compile(r"^No data points to plot yet\. Check that the chosen terms occur in the selected period\.$"), "Brak punktów do wykreślenia. Sprawdź, czy wybrane terminy występują w tym okresie."),
     (re.compile(r"^Most frequent words$"), "Najczęstsze wyrazy"),
     (re.compile(r"^Most frequent lemmas$"), "Najczęstsze lematy"),
     (re.compile(r"^Frequency per million words \((.*?)ly\)$"), r"Częstość na milion wyrazów (\1)"),
@@ -1010,11 +1027,108 @@ with tab2:
                     st.caption(f"Context: ... {r['Left']} **{r['Node']}** {r['Right']} ...")
 
 # ============================================================
-# TAB 3: DICTIONARIES (editable, stored in Supabase)
+# TAB 3: CORPUS-GENERATED DICTIONARY + EDITABLE LEXICON
 # ============================================================
 with tab3:
-    st.markdown("<h3 class='subheader'>Dictionaries (lexicon of sentiment / modality / stance)</h3>", unsafe_allow_html=True)
-    st.caption("These entries are stored in the database and shared with everyone who opens the app. Add your own terms.")
+    st.markdown("<h3 class='subheader'>Dictionary generated from uploaded texts</h3>", unsafe_allow_html=True)
+    st.caption("This corpus-derived word list updates from the texts stored in the corpus. It reports observed forms or lemmas, frequencies, and document coverage. It does not invent definitions; add definitions manually in your research notes or lexicon.")
+
+    if not transcripts:
+        st.info("Upload texts first to generate a corpus dictionary.")
+    else:
+        dc1, dc2, dc3 = st.columns([1, 1, 1])
+        with dc1:
+            dict_lang = st.selectbox("Dictionary language", ["all", "pl", "en", "mixed"],
+                format_func=lambda x: {"all": "All transcript languages", "pl": "Polish", "en": "English", "mixed": "Mixed Polish-English"}[x], key="dict_language")
+        with dc2:
+            dict_unit = st.selectbox("Entry type", ["lemma", "word"], key="dict_unit")
+        with dc3:
+            min_dict_freq = st.number_input("Minimum frequency", min_value=1, max_value=1000, value=2, step=1, key="dict_min_freq")
+
+        include_common = st.checkbox("Include common function words", value=False, key="dict_common")
+        dict_query = st.text_input("Filter entries", placeholder="Type a word or part of a word", key="dict_query").strip().casefold()
+        term_counts = Counter()
+        term_docs = Counter()
+        lang_counts = Counter()
+        source_col = "lemma_counts" if dict_unit == "lemma" else "word_counts"
+        for transcript in transcripts:
+            lang_value = (transcript.get("language") or "pl").lower()
+            if "-" in lang_value:
+                transcript_lang = "mixed"
+            elif lang_value.startswith("en"):
+                transcript_lang = "en"
+            else:
+                transcript_lang = "pl"
+            if dict_lang != "all" and transcript_lang != dict_lang:
+                continue
+            counts = transcript.get(source_col) or {}
+            for term, count in counts.items():
+                term = str(term).casefold().strip()
+                count = int(count or 0)
+                # Keep lexical items, excluding punctuation and numeric-only tokens.
+                if not term or not re.search(r"[^\W\d_]", term, flags=re.UNICODE):
+                    continue
+                if not include_common:
+                    stop = POLISH_STOP if transcript_lang == "pl" else set()
+                    if transcript_lang == "en":
+                        stop = {"the", "a", "an", "and", "or", "but", "if", "to", "of", "in", "on", "at", "for", "from", "by", "with", "is", "are", "was", "were", "be", "been", "being", "it", "this", "that", "these", "those", "i", "you", "he", "she", "we", "they", "me", "my", "your", "his", "her", "our", "their", "not", "do", "does", "did", "have", "has", "had", "as", "so", "just", "very", "can", "could", "will", "would", "should", "about", "what", "which", "who", "when", "where", "how"}
+                    if term in stop:
+                        continue
+                if dict_query and dict_query not in term:
+                    continue
+                term_counts[term] += count
+                term_docs[term] += 1
+                lang_counts[(term, transcript_lang)] += count
+        dict_rows = []
+        total_dict_tokens = sum(term_counts.values())
+        for term, count in term_counts.most_common():
+            if count < int(min_dict_freq):
+                continue
+            language_label = max(("pl", "en", "mixed"), key=lambda l: lang_counts[(term, l)])
+            dict_rows.append({
+                "Entry": term,
+                "Language": language_label,
+                "Frequency": count,
+                "Texts": term_docs[term],
+                "Per million": round(count / total_dict_tokens * 1_000_000, 2) if total_dict_tokens else 0,
+            })
+        dict_df = pd.DataFrame(dict_rows)
+        if dict_df.empty:
+            st.info("No entries match these filters. Lower the minimum frequency or include common words.")
+        else:
+            dict_top = st.slider("Maximum dictionary entries shown", min_value=25, max_value=1000, value=200, step=25, key="dict_limit")
+            shown_dict = dict_df.head(dict_top)
+            st.metric("Dictionary entries", f"{len(dict_df):,}")
+            st.dataframe(shown_dict, use_container_width=True, hide_index=True)
+            st.download_button("Download corpus dictionary (CSV)", dict_df.to_csv(index=False), file_name="corpus_dictionary.csv", mime="text/csv")
+
+            selected_term = st.selectbox("Show concordance examples for an entry", shown_dict["Entry"].tolist(), key="dict_example_term")
+            if st.button("Show examples", key="dict_show_examples"):
+                match_col = "lemma" if dict_unit == "lemma" else "word"
+                examples_res = (supabase.table("tokens").select("transcript_id,token_index,word,lemma")
+                                .eq("corpus_id", corpus_id).eq(match_col, selected_term)
+                                .order("transcript_id").order("token_index").limit(8).execute())
+                examples = examples_res.data or []
+                example_rows = []
+                title_by_id = {t["id"]: t["title"] for t in transcripts}
+                for hit in examples:
+                    idx = int(hit["token_index"])
+                    context = (supabase.table("tokens").select("token_index,word")
+                               .eq("transcript_id", hit["transcript_id"])
+                               .gte("token_index", max(0, idx - 5)).lte("token_index", idx + 5)
+                               .order("token_index").execute()).data or []
+                    left = " ".join(x["word"] for x in context if int(x["token_index"]) < idx)
+                    right = " ".join(x["word"] for x in context if int(x["token_index"]) > idx)
+                    example_rows.append({"Text": title_by_id.get(hit["transcript_id"], ""), "Left context": left,
+                                         "Entry": hit["word"], "Right context": right})
+                if example_rows:
+                    st.dataframe(pd.DataFrame(example_rows), use_container_width=True, hide_index=True)
+                else:
+                    st.caption("No indexed contexts are available for this entry yet.")
+
+    st.divider()
+    st.markdown("<h3 class='subheader'>Research lexicon: sentiment, modality, and stance</h3>", unsafe_allow_html=True)
+    st.caption("The corpus-generated dictionary above is built from your uploaded texts. This editable lexicon stores manually classified terms used by the stance and sentiment filters.")
     lex = cached_lexicon()
     lex_df = pd.DataFrame(lex)[["term", "lang", "category", "value"]] if lex else pd.DataFrame(columns=["term", "lang", "category", "value"])
     st.dataframe(lex_df, use_container_width=True, hide_index=True)
@@ -1066,22 +1180,30 @@ with tab4:
                     series[r["slice"]][k] += int(v)
                     sizes[r["slice"]] += int(v)
             trend_rows = []
-            for s in sorted(series):
+            for slice_label in sorted(series):
                 for term in chosen:
-                    c = series[s].get(term, 0)
-                    trend_rows.append({"slice": s, "term": term, "count": c,
-                                       "per_million": round(c / sizes[s] * 1e6, 2) if sizes[s] else 0})
-            tdf = pd.DataFrame(trend_rows)
-            fig = px.line(tdf, x="slice", y="per_million", color="term", markers=True,
-                          title=f"Frequency per million words ({gran.lower()}ly)")
-            st.plotly_chart(fig, use_container_width=True)
-            st.dataframe(tdf.pivot(index="slice", columns="term", values="count").fillna(0), use_container_width=True)
+                    c = int(series[slice_label].get(term, 0))
+                    trend_rows.append({"slice": str(slice_label), "term": str(term), "count": c,
+                                       "per_million": float(round(c / sizes[slice_label] * 1e6, 2)) if sizes[slice_label] else 0.0})
+            tdf = pd.DataFrame(trend_rows, columns=["slice", "term", "count", "per_million"])
+            if tdf.empty or not chosen or not tdf["per_million"].notna().any():
+                st.warning("No trend points can be plotted yet. Add dated transcripts containing searchable words, or change the selected terms.")
+            else:
+                tdf["per_million"] = pd.to_numeric(tdf["per_million"], errors="coerce")
+                try:
+                    fig = px.line(tdf, x="slice", y="per_million", color="term", markers=True,
+                                  title=f"Frequency per million words ({gran.lower()}ly)")
+                    st.plotly_chart(fig, use_container_width=True)
+                except (ValueError, TypeError, KeyError) as e:
+                    st.warning(f"Could not draw the trend chart for this selection: {e}. The frequency table below remains available.")
+                st.dataframe(tdf.pivot(index="slice", columns="term", values="count").fillna(0), use_container_width=True)
 
         st.divider()
         n_show = st.slider("Show top N", 10, 100, 25, key="freq_top")
         freq_df = pd.DataFrame(freq_df_all.most_common(n_show), columns=[f_mode.capitalize(), "Frequency"])
         freq_df["Rel. freq (per 1M)"] = (freq_df["Frequency"] / total_tokens * 1e6).round(1) if total_tokens else 0
-        st.plotly_chart(px.bar(freq_df.head(20), x=f_mode.capitalize(), y="Frequency", color="Frequency", color_continuous_scale="Blues", title=f"Most frequent {f_mode}s"), use_container_width=True)
+        if total_tokens:
+            st.plotly_chart(px.bar(freq_df.head(20), x=f_mode.capitalize(), y="Frequency", color="Frequency", color_continuous_scale="Blues", title=f"Most frequent {f_mode}s"), use_container_width=True)
         st.dataframe(freq_df, use_container_width=True, hide_index=True)
         st.download_button("Download full frequency list (CSV)", pd.DataFrame(freq_df_all.most_common(), columns=[f_mode, "freq"]).to_csv(index=False), file_name="frequencies.csv", mime="text/csv")
 # ============================================================
@@ -1217,9 +1339,12 @@ with tab6:
             for c in drift_data.values():
                 top_coll.update(c)
             top10 = [w for w, _ in top_coll.most_common(10)]
-            hm = pd.DataFrame({s: {w: drift_data[s].get(w, 0) for w in top10} for s in sl})
-            fig = px.imshow(hm, text_auto=True, aspect="auto", title=f"Collocates of '{drift_word}' across time slices")
-            st.plotly_chart(fig, use_container_width=True)
+            if top10 and sl:
+                hm = pd.DataFrame({s: {w: drift_data[s].get(w, 0) for w in top10} for s in sl})
+                fig = px.imshow(hm, text_auto=True, aspect="auto", title=f"Collocates of '{drift_word}' across time slices")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.info(f"No collocates found for '{drift_word}' in this corpus. Check the spelling (the search is case-sensitive and matches the stored lowercase form).")
 
 # ============================================================
 # TAB 7: LOANWORDS & ANGLICISMS
@@ -1244,7 +1369,10 @@ with tab7:
         ang_counts = pd.DataFrame(counts).sort_values("Count in corpus", ascending=False)
         shown = ang_counts[ang_counts["Count in corpus"] > 0]
         st.markdown(f"#### {len(shown)} anglicisms found in this corpus")
-        st.plotly_chart(px.bar(shown.head(20), x="Term", y="Count in corpus", color="Domain", title="Anglicisms by frequency"), use_container_width=True)
+        if not shown.empty:
+            st.plotly_chart(px.bar(shown.head(20), x="Term", y="Count in corpus", color="Domain", title="Anglicisms by frequency"), use_container_width=True)
+        else:
+            st.info("None of the anglicisms from the list occurs in this corpus yet.")
         st.dataframe(shown, use_container_width=True, hide_index=True)
         st.download_button("Download anglicisms (CSV)", ang_counts.to_csv(index=False), file_name="anglicisms.csv", mime="text/csv")
         # per-slice trend of top anglicisms
@@ -1261,7 +1389,8 @@ with tab7:
             for s in sorted(series_a):
                 for term in shown.head(5)["Term"]:
                     a_rows.append({"slice": s, "term": term, "per_million": round(series_a[s].get(term, 0) / max(1, sum(series_a[s].values())) * 1e6, 2)})
-            st.plotly_chart(px.line(pd.DataFrame(a_rows), x="slice", y="per_million", color="term", markers=True, title="Top anglicisms over time"), use_container_width=True)
+            if a_rows:
+                st.plotly_chart(px.line(pd.DataFrame(a_rows), x="slice", y="per_million", color="term", markers=True, title="Top anglicisms over time"), use_container_width=True)
 
 # ============================================================
 # TAB 8: STANCE / SENTIMENT / MODALITY
@@ -1323,7 +1452,10 @@ with tab9:
         if transcripts:
             lengths = sorted([(t["title"], sum(int(v) for v in (t.get("word_counts") or {}).values())) for t in transcripts], key=lambda x: x[1])
             len_df = pd.DataFrame(lengths, columns=["text", "tokens"])
-            st.plotly_chart(px.barh(len_df, x="tokens", y="text", title="Tokens per text"), use_container_width=True)
+            if not len_df.empty and len_df["tokens"].sum() > 0:
+                st.plotly_chart(px.barh(len_df, x="tokens", y="text", title="Tokens per text"), use_container_width=True)
+            else:
+                st.info("No token counts yet. Upload and index texts first.")
     with c2:
         st.markdown("#### Vocabulary richness")
         lm = corpus_word_freq(corpus_id, "lemma")
@@ -1352,7 +1484,8 @@ with tab9:
         pos_total.update({k: int(v) for k, v in (t.get("pos_counts") or {}).items()})
     if pos_total:
         pos_df = pd.DataFrame(pos_total.most_common(), columns=["POS", "Count"])
-        st.plotly_chart(px.pie(pos_df.head(12), values="Count", names="POS", title="POS distribution"), use_container_width=True)
+        if not pos_df.empty and pos_df["Count"].sum() > 0:
+            st.plotly_chart(px.pie(pos_df.head(12), values="Count", names="POS", title="POS distribution"), use_container_width=True)
 
 st.divider()
 st.caption("Linguistic Corpus Engine v3.0 | Streamlit + spaCy + Supabase. Data persists in the cloud; anyone with the app link can browse, search and analyze. Editing/deleting is available to all viewers; use Supabase RLS if you need to restrict this.")
