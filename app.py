@@ -136,6 +136,18 @@ def db_delete(table, column, value):
 # ============================================================
 SPACY_MODELS = {"pl": "pl_core_news_sm", "en": "en_core_web_sm", "de": "de_core_web_sm", "fr": "fr_core_web_sm", "es": "es_core_web_sm", "zh": "zh_core_web_sm"}
 
+TEXT_LANGUAGE_OPTIONS = {
+    "Polish": "pl",
+    "English": "en",
+    "Polish + English (Polish POS model)": "pl-en",
+    "English + Polish (English POS model)": "en-pl",
+}
+
+def primary_nlp_language(language: str) -> str:
+    """Choose the dominant-language spaCy model for bilingual transcripts."""
+    return (language or "pl").split("-")[0]
+
+
 @st.cache_resource
 def load_spacy_model(lang_code: str):
     model_name = SPACY_MODELS.get(lang_code, "en_core_web_sm")
@@ -229,7 +241,7 @@ def build_counts(tokens):
     pos_c = Counter(t["pos"] for t in tokens)
     return lemma_c, word_c, pos_c
 
-def save_transcript(corpus_id: int, title: str, lang: str, raw_text: str, metadata: dict | None = None, video_url: str = ""):
+def save_transcript(corpus_id: int, title: str, lang: str, raw_text: str, metadata: dict | None = None, video_url: str = "", nlp_lang: str | None = None):
     try:
         segments = parse_timed_segments(raw_text)
         clean_txt = clean_and_normalize(" ".join(s for s, _ in segments))
@@ -254,7 +266,7 @@ def save_transcript(corpus_id: int, title: str, lang: str, raw_text: str, metada
         with st.spinner("Tokenizing and tagging..."):
             for seg_text, ts in segments:
                 seg_clean = clean_and_normalize(seg_text)
-                toks = tokenize(seg_clean, lang)
+                toks = tokenize(seg_clean, nlp_lang or primary_nlp_language(lang))
                 for t in toks:
                     t["token_index"] = idx_base + t["token_index"]
                     t["ts_start"] = float(ts) if ts is not None else 0.0
@@ -494,7 +506,7 @@ with st.sidebar:
     st.markdown("### Create new corpus")
     new_name = st.text_input("Name", key="new_corpus_name", placeholder="e.g. Polish YouTube Podcasts")
     new_desc = st.text_area("Description", key="new_corpus_desc", height=70)
-    new_lang = st.selectbox("Main language", list(SPACY_MODELS), format_func=lambda l: {"pl": "Polish", "en": "English", "de": "German", "fr": "French", "es": "Spanish", "zh": "Chinese"}[l])
+    new_lang = st.selectbox("Main language", ["pl", "en", "pl-en"], format_func=lambda l: {"pl": "Polish", "en": "English", "pl-en": "Polish + English bilingual"}[l])
     if st.button("Create corpus", type="primary", use_container_width=True):
         if not new_name.strip():
             st.error("Enter a corpus name.")
@@ -541,6 +553,14 @@ with tab1:
     meta_fields = cached_metadata_fields()
     upload_method = st.radio("Method:", ["Paste text", "Upload file (txt/srt/vtt)"], horizontal=True)
 
+    def choose_transcript_language(key):
+        default_lang = CORPUS_LANG if CORPUS_LANG in TEXT_LANGUAGE_OPTIONS.values() else "pl"
+        labels = list(TEXT_LANGUAGE_OPTIONS.keys())
+        values = list(TEXT_LANGUAGE_OPTIONS.values())
+        default_index = values.index(default_lang) if default_lang in values else 0
+        selected = st.selectbox("Transcript language (choose separately from the corpus default)", labels, index=default_index, key=key)
+        return TEXT_LANGUAGE_OPTIONS[selected]
+
     def metadata_form(prefix):
         md = {}
         cols = st.columns(2)
@@ -572,6 +592,7 @@ with tab1:
 
     if upload_method == "Paste text":
         title = st.text_input("Title *", key="paste_title")
+        transcript_lang = choose_transcript_language("paste_language")
         video_url = st.text_input("Video URL (YouTube link enables the timestamp viewer)", key="paste_url")
         md = metadata_form("paste")
         missing = [f["label"] for f in meta_fields if f["mandatory"] and f["field_name"] not in md and f["field_name"] != "language"]
@@ -582,13 +603,14 @@ with tab1:
             elif missing:
                 st.error("Missing mandatory metadata: " + ", ".join(missing))
             else:
-                n = save_transcript(corpus_id, title.strip(), CORPUS_LANG, text_input, metadata=md, video_url=video_url)
+                n = save_transcript(corpus_id, title.strip(), transcript_lang, text_input, metadata=md, video_url=video_url, nlp_lang=primary_nlp_language(transcript_lang))
                 if n:
                     st.success(f"Saved. {n:,} tokens indexed.")
                     st.rerun()
     else:
         up = st.file_uploader("Upload .txt / .srt / .vtt (batch: select multiple)", type=["txt", "srt", "vtt"], accept_multiple_files=True)
         if up:
+            transcript_lang = choose_transcript_language("file_language")
             md = metadata_form("file")
             missing = [f["label"] for f in meta_fields if f["mandatory"] and f["field_name"] not in md and f["field_name"] != "language"]
             if missing:
@@ -603,7 +625,7 @@ with tab1:
                         st.error(f"{f.name}: {e}")
                         continue
                     tname = re.sub(r"\.(txt|srt|vtt)$", "", f.name, flags=re.I)
-                    n = save_transcript(corpus_id, tname, CORPUS_LANG, content, metadata=md, video_url=video_url)
+                    n = save_transcript(corpus_id, tname, transcript_lang, content, metadata=md, video_url=video_url, nlp_lang=primary_nlp_language(transcript_lang))
                     added += 1 if n else 0
                 if added:
                     st.success(f"Added {added} file(s).")
@@ -615,6 +637,12 @@ with tab1:
         for t in transcripts:
             with st.expander(f"{t['title']}  ({(t.get('publish_date') or 'no date')} | {(t.get('channel') or 'no channel')})"):
                 e_title = st.text_input("Title", value=t["title"], key=f"et_{t['id']}")
+                current_lang = t.get("language") or CORPUS_LANG
+                lang_values = list(TEXT_LANGUAGE_OPTIONS.values())
+                lang_labels = list(TEXT_LANGUAGE_OPTIONS.keys())
+                selected_lang = current_lang if current_lang in lang_values else "pl"
+                e_lang_label = st.selectbox("Transcript language", lang_labels, index=lang_values.index(selected_lang), key=f"elang_{t['id']}")
+                e_lang = TEXT_LANGUAGE_OPTIONS[e_lang_label]
                 e_url = st.text_input("Video URL", value=t.get("video_url") or "", key=f"eu_{t['id']}")
                 e_text = st.text_area("Clean text", value=t.get("clean_text") or "", height=140, key=f"ex_{t['id']}")
                 e_md = {}
@@ -631,7 +659,7 @@ with tab1:
                         e_md[f["field_name"]] = st.text_input(f["label"], value=str(cur) if cur else "", key=f"em_{t['id']}_{f['field_name']}")
                 cA, cB, cC = st.columns(3)
                 if cA.button("Save changes", key=f"sv_{t['id']}"):
-                    updates = {"title": e_title, "video_url": e_url or None}
+                    updates = {"title": e_title, "video_url": e_url or None, "language": e_lang}
                     updates.update({k: v for k, v in e_md.items()})
                     retext = e_text != (t.get("clean_text") or "")
                     if retext:
@@ -639,7 +667,7 @@ with tab1:
                         updates["raw_text"] = e_text
                     update_transcript(t["id"], updates)
                     if retext:
-                        n = save_transcript(corpus_id, e_title, CORPUS_LANG, e_text, metadata=updates, video_url=e_url)
+                        n = save_transcript(corpus_id, e_title, e_lang, e_text, metadata=updates, video_url=e_url, nlp_lang=primary_nlp_language(e_lang))
                         delete_transcript(t["id"])  # old tokens
                         st.success("Text and tokens re-indexed.")
                     else:
@@ -647,7 +675,7 @@ with tab1:
                     st.rerun()
                 if cB.button("Re-tokenize", key=f"rt_{t['id']}"):
                     delete_transcript(t["id"])
-                    save_transcript(corpus_id, t["title"], CORPUS_LANG, t.get("raw_text") or t.get("clean_text") or "", metadata={k: t.get(k) for k in [f["field_name"] for f in meta_fields]}, video_url=t.get("video_url") or "")
+                    save_transcript(corpus_id, t["title"], t.get("language") or CORPUS_LANG, t.get("raw_text") or t.get("clean_text") or "", metadata={k: t.get(k) for k in [f["field_name"] for f in meta_fields]}, video_url=t.get("video_url") or "", nlp_lang=primary_nlp_language(t.get("language") or CORPUS_LANG))
                     st.rerun()
                 if cC.button("Delete", key=f"dl_{t['id']}", type="primary"):
                     delete_transcript(t["id"])
