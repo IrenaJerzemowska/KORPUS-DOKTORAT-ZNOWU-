@@ -15,7 +15,208 @@ except ImportError:
 # ============================================================
 # CONFIG
 # ============================================================
-st.set_page_config(page_title="Linguistic Corpus Engine", page_icon="🔬", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Korpus językowy | Linguistic Corpus Engine", page_icon="🔬", layout="wide", initial_sidebar_state="expanded")
+
+
+# ============================================================
+# INTERFACE LANGUAGE: Polish by default, with English toggle
+# ============================================================
+PL_TRANSLATIONS = {
+    "Polish": "Polski", "English": "Angielski", "Interface language": "Język interfejsu",
+    "Linguistic Corpus Engine": "Korpus językowy",
+    "Corpus Management": "Zarządzanie korpusem", "Create new corpus": "Utwórz nowy korpus",
+    "Name": "Nazwa", "Description": "Opis", "Main language": "Język główny",
+    "Polish + English bilingual": "Polski i angielski (korpus dwujęzyczny)",
+    "Create corpus": "Utwórz korpus", "Active corpus": "Aktywny korpus",
+    "Delete this corpus": "Usuń ten korpus", "No corpora yet. Create one below.": "Nie ma jeszcze korpusów. Utwórz pierwszy poniżej.",
+    "Create or select a corpus in the sidebar to start.": "Aby rozpocząć, utwórz korpus lub wybierz go z panelu bocznego.",
+    "I understand this deletes all texts and tokens": "Rozumiem, że ta operacja usunie wszystkie teksty i tokeny",
+    "Enter a corpus name.": "Wpisz nazwę korpusu.",
+    "Upload & Manage": "Przesyłanie i zarządzanie", "KWIC + Timestamps": "KWIC i znaczniki czasu",
+    "Dictionaries": "Słowniki", "Frequency & Trends": "Częstość i trendy",
+    "Neologisms & Keyness": "Neologizmy i kluczowość", "Semantic Drift & Keywords over Time": "Zmiana semantyczna i słowa kluczowe w czasie",
+    "Loanwords & Anglicisms": "Zapożyczenia i anglicyzmy", "Stance / Sentiment / Modality": "Stanowisko, sentyment i modalność",
+    "Statistics & Metadata": "Statystyki i metadane", "Statistics & Metadata": "Statystyki i metadane",
+    "Texts": "Teksty", "Tokens": "Tokeny", "Types (lemmas)": "Typy (lematy)", "TTR": "Wskaźnik typ-token (TTR)",
+    "Add texts": "Dodawanie tekstów", "Method:": "Sposób dodawania:", "Paste text": "Wklej tekst",
+    "Upload file (txt/srt/vtt)": "Prześlij pliki (DOCX/TXT/SRT/VTT)",
+    "Texts in this corpus (edit / delete)": "Teksty w tym korpusie (edytuj / usuń)",
+    "Title *": "Tytuł *", "Title": "Tytuł", "Video URL (YouTube link enables the timestamp viewer)": "Adres URL filmu (link YouTube włącza odtwarzacz ze znacznikami czasu)",
+    "Video URL for these files (optional)": "Adres URL filmu dla tych plików (opcjonalnie)", "Video URL": "Adres URL filmu",
+    "Transcript language (choose separately from the corpus default)": "Język transkrypcji (wybierz niezależnie od ustawienia korpusu)",
+    "Transcript language": "Język transkrypcji", "Text content *": "Treść tekstu *", "Clean text": "Oczyszczony tekst",
+    "Add to corpus": "Dodaj do korpusu", "Add files to corpus": "Dodaj pliki do korpusu",
+    "Upload .docx / .txt / .srt / .vtt (batch: select multiple)": "Prześlij pliki .docx / .txt / .srt / .vtt (możesz wybrać wiele)",
+    "Video ID": "Identyfikator filmu", "Video ID *": "Identyfikator filmu *", "Channel / Source": "Kanał / źródło", "Channel / Source *": "Kanał / źródło *",
+    "Publish date": "Data publikacji", "Publish date *": "Data publikacji *", "Duration (seconds)": "Czas trwania (sekundy)", "Duration (seconds) *": "Czas trwania (sekundy) *",
+    "Main speaker(s)": "Główny mówca / główni mówcy", "Genre": "Gatunek", "Language": "Język",
+    "interview": "wywiad", "podcast": "podcast", "vlog": "wideoblog", "news": "wiadomości", "lecture": "wykład", "live stream": "transmisja na żywo", "other": "inne",
+    "No texts yet.": "Nie dodano jeszcze tekstów.", "Add dictionary entry": "Dodaj wpis do słownika",
+    "Dictionaries (lexicon of sentiment / modality / stance)": "Słowniki (leksykon sentymentu / modalności / stanowiska)",
+    "These entries are stored in the database and shared with everyone who opens the app. Add your own terms.": "Wpisy są przechowywane w bazie i widoczne dla wszystkich użytkowników aplikacji. Możesz dodawać własne terminy.",
+    "Term / phrase": "Termin / wyrażenie", "Term": "Termin", "Category": "Kategoria", "Value (for sentiment: -1..1)": "Wartość (dla sentymentu: od -1 do 1)",
+    "Add entry": "Dodaj wpis", "Delete entries": "Usuń wpisy", "Confirm delete": "Potwierdź usunięcie", "Add": "Dodaj",
+    "positive": "pozytywny", "negative": "negatywny", "epistemic": "epistemiczny", "deontic": "deontyczny", "stance_agree": "zgoda ze stanowiskiem", "stance_disagree": "brak zgody ze stanowiskiem", "custom": "własna kategoria",
+    "word": "forma wyrazowa", "lemma": "lemat", "any": "dowolny", "agree-lean": "przewaga zgody", "disagree-lean": "przewaga niezgody",
+    "Frequency & time-sliced trends": "Częstość i trendy w podziale na okresy", "Level:": "Poziom:", "Time slice granularity": "Jednostka podziału czasu",
+    "Time slice for emergence": "Jednostka czasu dla analizy nowych słów", "Time granularity for anglicism trends": "Jednostka czasu dla trendów anglicyzmów",
+    "Year": "Rok", "Quarter": "Kwartał", "Month": "Miesiąc", "Show top N": "Pokaż pierwszych N wyników",
+    "Terms to track over time (empty = top 10 overall)": "Terminy śledzone w czasie (puste pole = 10 najczęstszych)",
+    "Download full frequency list (CSV)": "Pobierz pełną listę częstości (CSV)",
+    "KWIC concordance": "Konkordancja KWIC", "Match on:": "Szukaj według:", "Query (exact word, or wildcard with *):": "Zapytanie (dokładny wyraz lub symbol wieloznaczny *):",
+    "Context words": "Liczba wyrazów kontekstu", "Max hits": "Maksymalna liczba trafień", "Run KWIC": "Uruchom KWIC", "Download KWIC as CSV": "Pobierz KWIC jako CSV",
+    "Video timestamp viewer": "Odtwarzacz wideo ze znacznikami czasu", "Jump to hit:": "Przejdź do trafienia:",
+    "Neologism / emergence spotter & keyness": "Wykrywanie neologizmów i nowych zjawisk oraz kluczowość", "Emergent words (late vs early period)": "Nowe wyrazy (okres późniejszy względem wcześniejszego)",
+    "Keyness (log-likelihood, this corpus vs reference)": "Kluczowość (log-wiarygodność, korpus badany względem referencyjnego)",
+    "Reference corpus (baseline)": "Korpus referencyjny (punkt odniesienia)", "Min frequency in target corpus": "Minimalna częstość w korpusie badanym", "Download keyness (CSV)": "Pobierz wyniki kluczowości (CSV)",
+    "Semantic drift & keyword-in-time tracker": "Zmiana semantyczna i śledzenie słów kluczowych w czasie", "Granularity": "Jednostka czasu",
+    "Keywords in time (distinctive terms per slice)": "Słowa kluczowe w czasie (charakterystyczne terminy dla okresu)",
+    "Semantic drift: collocates of a word over time": "Zmiana semantyczna: kolokaty wyrazu w czasie", "Word to track collocates for:": "Wyraz, którego kolokaty chcesz śledzić:",
+    "Collocate span (words each side)": "Zakres kolokacji (liczba wyrazów z każdej strony)", "Compute drift": "Oblicz zmianę semantyczną",
+    "Loanword & anglicism tracker (Polish)": "Śledzenie zapożyczeń i anglicyzmów w polszczyźnie", "Domain (e.g. tech, social media)": "Dziedzina (np. technologia, media społecznościowe)",
+    "Download anglicisms (CSV)": "Pobierz anglicyzmy (CSV)", "Stance, sentiment & modality filter": "Filtr stanowiska, sentymentu i modalności",
+    "Filter transcripts by stance / sentiment / modality profile:": "Filtruj transkrypcje według profilu stanowiska, sentymentu lub modalności:",
+    "Sentiment tilt": "Nastawienie sentymentu", "Min epistemic markers (hedging)": "Min. liczba wykładników epistemicznych (asekuracja)", "Min deontic markers (obligation)": "Min. liczba wykładników deontycznych (obowiązek)",
+    "Stance": "Stanowisko", "any": "dowolne", "positive-lean": "przewaga pozytywnego", "negative-lean": "przewaga negatywnego", "agree-lean": "przewaga zgody", "disagree-lean": "przewaga niezgody",
+    "Corpus statistics": "Statystyki korpusu", "Tokens per text": "Tokeny w tekście", "Vocabulary richness": "Bogactwo słownictwa", "Metadata coverage": "Kompletność metadanych", "POS distribution": "Rozkład części mowy",
+    "Download metadata table (CSV)": "Pobierz tabelę metadanych (CSV)", "Guiraud index": "Indeks Guirauda", "Relative frequency (%)": "Częstość względna (%)",
+    "Text": "Tekst", "Left": "Lewy kontekst", "Node": "Szukany wyraz", "Right": "Prawy kontekst", "POS": "Część mowy", "Timestamp": "Znacznik czasu",
+    "Count": "Liczba", "Frequency": "Częstość", "Rel. freq (per 1M)": "Częstość względna (na milion)", "per_million": "Na milion", "slice": "Okres", "term": "Termin", "Co-occurrences": "Współwystąpienia", "Collocate": "Kolokat", "Keyword": "Słowo kluczowe", "Slice": "Okres", "Domain": "Dziedzina", "Count in corpus": "Liczba w korpusie", "Positive": "Pozytywne", "Negative": "Negatywne", "Epistemic": "Epistemiczne", "Deontic": "Deontyczne", "Agree": "Zgoda", "Disagree": "Niezgoda", "Mandatory": "Obowiązkowe", "Filled": "Uzupełnione", "Guiraud index": "Indeks Guirauda",
+    "POS distribution": "Rozkład części mowy", "Lemma": "Lemat", "Word": "Wyraz", "Count in corpus": "Liczba w korpusie", "emergence": "Wzrost", "early": "Wcześniej", "late": "Później", "Target": "Badany", "Reference": "Referencyjny", "LL": "Wartość LL",
+    "No matching texts yet.": "Nie znaleziono jeszcze pasujących tekstów.", "Upload texts first.": "Najpierw prześlij teksty.", "No terms reached LL >= 6.63 (p < 0.01). Lower the min frequency.": "Żaden termin nie osiągnął LL >= 6,63 (p < 0,01). Zmniejsz minimalną częstość.",
+    "Add a YouTube URL to a transcript to embed the player here.": "Dodaj adres YouTube do transkrypcji, aby wyświetlić tutaj odtwarzacz.", "Counts come from the stored lexicon; edit it in the Dictionaries tab to refine the filter.": "Liczby pochodzą z zapisanego leksykonu; edytuj go w zakładce Słowniki, aby doprecyzować filtr.",
+    "These entries are stored in the database and shared with everyone who opens the app. Add your own terms.": "Wpisy są przechowywane w bazie i widoczne dla wszystkich użytkowników aplikacji. Możesz dodawać własne terminy.",
+    "Database error": "Błąd bazy danych", "Error saving transcript": "Błąd zapisu transkrypcji", "Failed to insert transcript (check that schema.sql was run).": "Nie udało się dodać transkrypcji (sprawdź, czy uruchomiono schema.sql).",
+    "Title and text are required.": "Tytuł i tekst są wymagane.", "Missing mandatory metadata:": "Brak wymaganych metadanych:", "Tokenizing and tagging...": "Tokenizacja i oznaczanie...",
+    "Add a YouTube URL to a transcript to embed the player here.": "Dodaj adres YouTube do transkrypcji, aby wyświetlić tutaj odtwarzacz.",
+    "Delete": "Usuń", "Save changes": "Zapisz zmiany", "Re-tokenize": "Ponownie tokenizuj", "Text and tokens re-indexed.": "Tekst i tokeny zostały ponownie zaindeksowane.", "Saved.": "Zapisano.",
+    "Text and tokens re-indexed.": "Tekst i tokeny zostały ponownie zaindeksowane.", "No texts yet.": "Nie dodano jeszcze tekstów.",
+    "Type/Token Ratio": "Wskaźnik typów do tokenów", "Relative Freq (%)": "Częstość względna (%)", "Total Tokens": "Łączna liczba tokenów", "Unique Lemmas": "Unikalne lematy",
+    "Powered by spaCy & Supabase": "Technologie: spaCy i Supabase", "Corpus Engine": "Silnik korpusowy",
+    "Polish + English (Polish POS model)": "Polski i angielski (model anotacji polskiej)",
+    "English + Polish (English POS model)": "Angielski i polski (model anotacji angielskiej)",
+    "Upload file": "Prześlij plik", "Regex": "Wyrażenie regularne", "POS Tag": "Część mowy",
+    "Lemma + POS": "Lemat i część mowy", "Search": "Szukaj", "Analyze": "Analizuj", "Download as CSV": "Pobierz jako CSV",
+    "Found": "Znaleziono", "matching texts": "pasujących tekstów", "No matches found": "Nie znaleziono trafień",
+    "No publish_date values set. Fill the mandatory 'Publish date' metadata to enable trends.": "Nie ustawiono dat publikacji. Uzupełnij wymagane metadane „Data publikacji”, aby włączyć analizę trendów.",
+    "Needs publish_date metadata on at least two time slices.": "Do analizy potrzebne są daty publikacji dla co najmniej dwóch okresów.",
+    "Needs publish_date metadata on at least two time slices.": "Do analizy potrzebne są daty publikacji dla co najmniej dwóch okresów.",
+    "Empty": "Puste", "no date": "brak daty", "no channel": "brak kanału", "unknown": "nieznany", "general": "ogólne",
+    "Corpus diversity": "Różnorodność korpusu", "POS": "Część mowy", "Frequency": "Częstość", "Count": "Liczebność",
+    "Left": "Kontekst lewy", "Right": "Kontekst prawy", "Keyword": "Słowo kluczowe", "Text": "Tekst",
+    "Score": "Wynik", "Relative frequency": "Częstość względna", "Type/Token Ratio": "Wskaźnik typów do tokenów",
+    "TTR": "Wskaźnik typów do tokenów (TTR)", "Tokenizing and tagging...": "Tokenizacja i anotacja...",
+    "Create a second corpus (e.g. your small test corpus or a general reference corpus) to enable neologism spotting and keyness.": "Utwórz drugi korpus, np. mały korpus testowy lub korpus referencyjny, aby analizować neologizmy i kluczowość.",
+    "A stored list of English-origin items used in Polish. Extend it below; it persists for everyone.": "Lista angielskiego pochodzenia używanych w polszczyźnie. Możesz ją rozszerzyć; zmiany są zapisywane dla wszystkich.",
+    "Add terms in the Dictionaries tab first.": "Najpierw dodaj terminy w zakładce Słowniki.",
+    "Upload texts first.": "Najpierw prześlij teksty.", "No texts yet.": "Nie dodano jeszcze tekstów.",
+    "Corpus Management": "Zarządzanie korpusem", "Create new corpus": "Utwórz nowy korpus",
+}
+
+_TRANSLATION_PATTERNS = [
+    (re.compile(r"^Most frequent words$"), "Najczęstsze wyrazy"),
+    (re.compile(r"^Most frequent lemmas$"), "Najczęstsze lematy"),
+    (re.compile(r"^Frequency per million words \((.*?)ly\)$"), r"Częstość na milion wyrazów (\1)"),
+    (re.compile(r"^Collocates of '(.+)' across time slices$"), r"Kolokaty wyrazu „\1” w kolejnych okresach"),
+    (re.compile(r"^Anglicisms by frequency$"), "Anglicyzmy według częstości"),
+    (re.compile(r"^Top anglicisms over time$"), "Najczęstsze anglicyzmy w czasie"),
+    (re.compile(r"^Tokens per text$"), "Tokeny w poszczególnych tekstach"),
+    (re.compile(r"^POS distribution$"), "Rozkład części mowy"),
+    (re.compile(r"^#### (\d+) anglicisms found in this corpus$"), r"#### Liczba anglicyzmów w korpusie: \1"),
+    (re.compile(r"^Mandatory fields still empty: (.*)$"), r"Nieuzupełnione wymagane pola: \1"),
+    (re.compile(r"^(\d+) matching texts$"), r"Pasujące teksty: \1"),
+    (re.compile(r"^Context: \.\.\. (.*)$"), r"Kontekst: ... \1"),
+    (re.compile(r"^Corpus '(.+)' created\.$"), r"Utworzono korpus „\1”."),
+    (re.compile(r"^Added (\d+) file\(s\)\.$"), r"Dodano plików: \1."),
+    (re.compile(r"^Saved\. ([\d,]+) tokens indexed\.$"), r"Zapisano. Zaindeksowano tokenów: \1."),
+    (re.compile(r"^Found (\d+) matching texts$"), r"Znaleziono pasujących tekstów: \1"),
+    (re.compile(r"^Found (\d+) matches$"), r"Znaleziono trafień: \1"),
+    (re.compile(r"^Found (\d+) anglicisms in this corpus$"), r"Liczba anglicyzmów w korpusie: \1"),
+    (re.compile(r"^Found (\d+) tokens with POS=(.+)$"), r"Liczba tokenów z częścią mowy \2: \1"),
+    (re.compile(r"^Error saving transcript: (.*)$"), r"Błąd zapisu transkrypcji: \1"),
+    (re.compile(r"^Database error \[(.*?)\]: (.*)$"), r"Błąd bazy danych [\1]: \2"),
+    (re.compile(r"^Default (.+) data could not be seeded (.*)$"), r"Nie udało się dodać danych domyślnych (\1): \2"),
+]
+
+def _translate_text(value, allow_fragments=False):
+    if not isinstance(value, str):
+        return value
+    if st.session_state.get("interface_language", "Polish") not in ("Polish", "Polski"):
+        return value
+    for pattern, replacement in _TRANSLATION_PATTERNS:
+        if pattern.match(value):
+            return pattern.sub(replacement, value)
+    # Translate exact UI strings and embedded headings, longest phrases first.
+    if value in PL_TRANSLATIONS:
+        return PL_TRANSLATIONS[value]
+    if allow_fragments:
+        for en in sorted(PL_TRANSLATIONS, key=len, reverse=True):
+            if len(en) > 4 and en in value:
+                value = value.replace(en, PL_TRANSLATIONS[en])
+    return value
+
+def _install_polish_interface():
+    """Localize visible Streamlit labels without changing stored data or widget values."""
+    try:
+        from streamlit.delta_generator import DeltaGenerator
+    except Exception:
+        return
+    methods = ["markdown", "title", "header", "subheader", "caption", "info", "warning", "error", "success", "exception",
+               "text_input", "text_area", "number_input", "date_input", "selectbox", "multiselect", "radio", "checkbox", "button",
+               "file_uploader", "metric", "tabs", "dataframe", "download_button", "spinner", "expander", "plotly_chart"]
+    for method_name in methods:
+        original = getattr(DeltaGenerator, method_name, None)
+        if original is None or getattr(original, "_polish_i18n_wrapped", False):
+            continue
+        def make_wrapper(original_method, name):
+            def wrapped(self, *args, **kwargs):
+                args = list(args)
+                if name == "tabs" and args:
+                    args[0] = [_translate_text(x) for x in args[0]]
+                elif name == "dataframe":
+                    try:
+                        import pandas as _pd
+                        if args and isinstance(args[0], _pd.DataFrame):
+                            args[0] = args[0].rename(columns=lambda x: _translate_text(str(x)))
+                        elif isinstance(kwargs.get("data"), _pd.DataFrame):
+                            kwargs["data"] = kwargs["data"].rename(columns=lambda x: _translate_text(str(x)))
+                    except Exception:
+                        pass
+                elif name == "plotly_chart":
+                    fig = args[0] if args else kwargs.get("figure")
+                    if fig is not None and st.session_state.get("interface_language", "Polish") in ("Polish", "Polski"):
+                        try:
+                            for attr in ("title",):
+                                text = getattr(fig.layout, attr).text
+                                if text: getattr(fig.layout, attr).text = _translate_text(text)
+                            for axis in ("xaxis", "yaxis", "legend"):
+                                obj = getattr(fig.layout, axis, None)
+                                if obj is not None and getattr(obj, "title", None) and getattr(obj.title, "text", None):
+                                    obj.title.text = _translate_text(obj.title.text)
+                        except Exception:
+                            pass
+                else:
+                    # Translate human-facing first argument (widget labels, alerts, headings).
+                    if args and isinstance(args[0], str):
+                        args[0] = _translate_text(args[0], allow_fragments=(name == "markdown"))
+                    # Streamlit select/radio options retain their original values; only their display labels translate.
+                    if name in ("selectbox", "multiselect", "radio"):
+                        fmt = kwargs.get("format_func")
+                        if fmt is None:
+                            kwargs["format_func"] = lambda value: _translate_text(str(value))
+                        else:
+                            kwargs["format_func"] = lambda value, _fmt=fmt: _translate_text(str(_fmt(value)))
+                    for key in ("help", "placeholder", "label_visibility"):
+                        if isinstance(kwargs.get(key), str):
+                            kwargs[key] = _translate_text(kwargs[key])
+                return original_method(self, *args, **kwargs)
+            wrapped._polish_i18n_wrapped = True
+            return wrapped
+        setattr(DeltaGenerator, method_name, make_wrapper(original, method_name))
+
+_install_polish_interface()
+# Default to Polish, but make an English option available for presentations.
+st.sidebar.selectbox("Interface language", ["Polish", "English"], index=0, key="interface_language")
 
 st.markdown("""
 <style>
@@ -93,6 +294,7 @@ HINTS = {
     "23505": ("A duplicate-name conflict: if it mentions 'corpora', that corpus name already exists - choose a different name. "
                "If it mentions 'anglicisms_term_key' or 'lexicon', it is a harmless background dictionary-seeding duplicate and can be ignored."),
     "23502": "A required field was empty.",
+    "23514": "A database CHECK constraint rejected the transcript language. Run bilingual_language_fix.sql in Supabase to allow pl, en, pl-en and en-pl language labels.",
     "42P01": "The table does not exist. Run schema.sql in the Supabase SQL Editor first.",
     "PGRST301": "The API key was rejected. Check SUPABASE_KEY: it must be the anon public key from Supabase > Project Settings > API.",
 }
@@ -155,10 +357,11 @@ def load_spacy_model(lang_code: str):
         import spacy
         try:
             return spacy.load(model_name), model_name
-        except OSError:
-            st.info(f" spaCy model '{model_name}' is not installed in this environment. Falling back to the built-in regex tokenizer (no POS tags). Add '{model_name}' to requirements.txt for full tagging.")
+        except Exception as e:
+            st.warning(f"spaCy model '{model_name}' could not load ({e}). Using regex tokenization without POS tags for this run. Check the pinned compatible dependencies in requirements.txt.")
             return None, model_name
-    except ImportError:
+    except Exception as e:
+        st.warning(f"spaCy could not initialize ({e}). Using regex tokenization without POS tags for this run. Check the pinned compatible dependencies in requirements.txt.")
         return None, model_name
 
 WORD_RE = re.compile(r"\w+", re.UNICODE)
@@ -242,6 +445,7 @@ def build_counts(tokens):
     return lemma_c, word_c, pos_c
 
 def save_transcript(corpus_id: int, title: str, lang: str, raw_text: str, metadata: dict | None = None, video_url: str = "", nlp_lang: str | None = None):
+    t_id = None
     try:
         segments = parse_timed_segments(raw_text)
         clean_txt = clean_and_normalize(" ".join(s for s, _ in segments))
@@ -288,6 +492,14 @@ def save_transcript(corpus_id: int, title: str, lang: str, raw_text: str, metada
         clear_caches()
         return len(token_rows)
     except Exception as e:
+        # Avoid leaving a transcript row with no tokens if processing fails midway.
+        if t_id is not None:
+            try:
+                supabase.table("tokens").delete().eq("transcript_id", t_id).execute()
+                supabase.table("transcriptions").delete().eq("id", t_id).execute()
+                clear_caches()
+            except Exception:
+                pass
         st.error(f"Error saving transcript: {e}")
         return 0
 
@@ -329,7 +541,7 @@ DEFAULT_METADATA_FIELDS = [
     ("channel", "Channel / Source", "text", True),
     ("publish_date", "Publish date", "date", True),
     ("duration_seconds", "Duration (seconds)", "number", True),
-    ("video_url", "Video URL", "text", True),
+    ("video_url", "Video URL", "text", False),
     ("speaker", "Main speaker(s)", "text", False),
     ("genre", "Genre", "select", False),
     ("language", "Language", "text", False),
@@ -595,7 +807,7 @@ with tab1:
         transcript_lang = choose_transcript_language("paste_language")
         video_url = st.text_input("Video URL (YouTube link enables the timestamp viewer)", key="paste_url")
         md = metadata_form("paste")
-        missing = [f["label"] for f in meta_fields if f["mandatory"] and f["field_name"] not in md and f["field_name"] != "language"]
+        missing = [f["label"] for f in meta_fields if f["mandatory"] and f["field_name"] not in md and f["field_name"] not in ("language", "video_url")]
         text_input = st.text_area("Text content *", height=220, key="paste_text", placeholder="Paste transcript. Inline [mm:ss] markers or SRT/VTT cues are detected automatically for timestamps.")
         if st.button("Add to corpus", type="primary", use_container_width=True):
             if not title.strip() or not text_input.strip():
@@ -612,7 +824,7 @@ with tab1:
         if up:
             transcript_lang = choose_transcript_language("file_language")
             md = metadata_form("file")
-            missing = [f["label"] for f in meta_fields if f["mandatory"] and f["field_name"] not in md and f["field_name"] != "language"]
+            missing = [f["label"] for f in meta_fields if f["mandatory"] and f["field_name"] not in md and f["field_name"] not in ("language", "video_url")]
             if missing:
                 st.warning("Mandatory fields still empty: " + ", ".join(missing))
             video_url = st.text_input("Video URL for these files (optional)", key="file_url")
