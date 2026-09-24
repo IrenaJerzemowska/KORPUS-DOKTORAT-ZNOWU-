@@ -127,6 +127,31 @@ PL_TRANSLATIONS = {
     "No trend points can be plotted yet. Add dated transcripts containing searchable words, or change the selected terms.": "Brak punktów do wykreślenia trendu. Dodaj transkrypcje z datami i tekstem albo zmień wybrane terminy.",
     "Could not draw the trend chart for this selection: ": "Nie udało się narysować wykresu trendu dla tego wyboru: ",
 }
+PL_TRANSLATIONS.update({
+    "Main speaker(s)": "Główny mówca / główni mówcy", "Genre": "Gatunek", "Language": "Język",
+    "Linguistic Corpus Engine v3.0 | Streamlit + spaCy + Supabase. Data persists in the cloud; anyone with the app link can browse, search and analyze. Editing/deleting is available to all viewers; use Supabase RLS if you need to restrict this.": "Korpus językowy v3.0 | Streamlit + spaCy + Supabase. Dane są przechowywane w chmurze. Każda osoba z linkiem może przeglądać, wyszukiwać i analizować korpus.",
+    "Include common function words": "Uwzględnij częste wyrazy funkcyjne", "Minimum frequency": "Minimalna częstość", "Filter entries": "Filtruj hasła", "Type a word or part of a word": "Wpisz wyraz lub jego fragment",
+    "Dictionary language": "Język słownika", "Entry type": "Typ hasła", "Maximum dictionary entries shown": "Maksymalna liczba wyświetlanych haseł", "Dictionary entries": "Liczba haseł słownika",
+    "Show concordance examples for an entry": "Pokaż przykłady konkordancji dla hasła", "Show examples": "Pokaż przykłady", "No indexed contexts are available for this entry yet.": "Brak zaindeksowanych kontekstów dla tego hasła.",
+    "Research lexicon: sentiment, modality, and stance": "Leksykon badawczy: sentyment, modalność i stanowisko",
+    "No entries match these filters. Lower the minimum frequency or include common words.": "Żadne hasło nie spełnia wybranych kryteriów. Zmniejsz minimalną częstość lub uwzględnij częste wyrazy.",
+    "No token counts yet. Upload and index texts first.": "Brak zliczeń tokenów. Najpierw prześlij teksty i je zaindeksuj.",
+    "No publish_date values set. Fill the mandatory 'Publish date' metadata to enable trends.": "Nie ustawiono dat publikacji. Uzupełnij wymagane pole „Data publikacji”, aby włączyć analizę trendów.",
+    "Needs publish_date metadata on at least two time slices.": "Do analizy potrzebne są daty publikacji dla co najmniej dwóch okresów.",
+    "Add terms in the Dictionaries tab first.": "Najpierw dodaj terminy w zakładce Słowniki.", "Upload texts first to generate a corpus dictionary.": "Aby utworzyć słownik korpusowy, najpierw prześlij teksty.",
+    "None of the anglicisms from the list occurs in this corpus yet.": "Żaden z anglicyzmów z listy nie występuje jeszcze w tym korpusie.",
+    "A stored list of English-origin items used in Polish. Extend it below; it persists for everyone.": "Lista wyrazów pochodzenia angielskiego używanych w polszczyźnie. Możesz ją rozszerzać; zmiany są zapisywane dla wszystkich.",
+    "Counts come from the stored lexicon; edit it in the Dictionaries tab to refine the filter.": "Liczby pochodzą z zapisanego leksykonu; edytuj go w zakładce Słowniki, aby doprecyzować filtr.",
+    "Compare collocates across slices: changing collocates = semantic drift (e.g. 'europa' drifting from 'unia' to 'kryzys').": "Porównaj kolokaty w kolejnych okresach. Zmieniające się kolokaty mogą wskazywać na zmianę semantyczną.",
+    "Create a second corpus (e.g. your small test corpus or a general reference corpus) to enable neologism spotting and keyness.": "Utwórz drugi korpus, np. mały korpus testowy lub referencyjny, aby analizować neologizmy i kluczowość.",
+    "Missing Supabase credentials. Add SUPABASE_URL and SUPABASE_KEY to your secrets (local: .streamlit/secrets.toml, cloud: Streamlit Cloud app settings).": "Brak danych logowania do Supabase. Ustaw adres projektu i klucz anon w sekretach lokalnych lub w ustawieniach Streamlit Cloud.",
+    "Enter a corpus name.": "Wpisz nazwę korpusu.", "Title and text are required.": "Tytuł i tekst są wymagane.",
+    "Failed to insert transcript (check that schema.sql was run).": "Nie udało się dodać transkrypcji. Sprawdź, czy uruchomiono skrypt schematu bazy.",
+    "No trend points can be plotted yet. Add dated transcripts containing searchable words, or change the selected terms.": "Brak punktów do wykreślenia trendu. Dodaj datowane transkrypcje z tekstem albo zmień wybrane terminy.",
+    "Add anglicism": "Dodaj anglicyzm", "Types": "Typy", "Set publish_date metadata to use time tracking.": "Uzupełnij datę publikacji, aby włączyć śledzenie zmian w czasie.",
+    "Upload file (txt/srt/vtt)": "Prześlij plik (DOCX/TXT/SRT/VTT)", "Corpus statistics": "Statystyki korpusu",
+    "The corpus-generated dictionary above is built from your uploaded texts. This editable lexicon stores manually classified terms used by the stance and sentiment filters.": "Powyższy słownik korpusowy powstaje na podstawie przesłanych tekstów. Ten edytowalny leksykon przechowuje ręcznie sklasyfikowane terminy używane w filtrach stanowiska i sentymentu.",
+})
 
 _TRANSLATION_PATTERNS = [
     (re.compile(r"^Could not draw the trend chart for this selection: (.*)$"), r"Nie udało się narysować wykresu trendu dla tego wyboru: \1"),
@@ -180,7 +205,7 @@ def _install_polish_interface():
         return
     methods = ["markdown", "title", "header", "subheader", "caption", "info", "warning", "error", "success", "exception",
                "text_input", "text_area", "number_input", "date_input", "selectbox", "multiselect", "radio", "checkbox", "button",
-               "file_uploader", "metric", "tabs", "dataframe", "download_button", "spinner", "expander", "plotly_chart"]
+               "file_uploader", "metric", "tabs", "dataframe", "download_button", "spinner", "expander"]
     for method_name in methods:
         original = getattr(DeltaGenerator, method_name, None)
         if original is None or getattr(original, "_polish_i18n_wrapped", False):
@@ -199,19 +224,6 @@ def _install_polish_interface():
                             kwargs["data"] = kwargs["data"].rename(columns=lambda x: _translate_text(str(x)))
                     except Exception:
                         pass
-                elif name == "plotly_chart":
-                    fig = args[0] if args else kwargs.get("figure")
-                    if fig is not None and st.session_state.get("interface_language", "Polish") in ("Polish", "Polski"):
-                        try:
-                            for attr in ("title",):
-                                text = getattr(fig.layout, attr).text
-                                if text: getattr(fig.layout, attr).text = _translate_text(text)
-                            for axis in ("xaxis", "yaxis", "legend"):
-                                obj = getattr(fig.layout, axis, None)
-                                if obj is not None and getattr(obj, "title", None) and getattr(obj.title, "text", None):
-                                    obj.title.text = _translate_text(obj.title.text)
-                        except Exception:
-                            pass
                 else:
                     # Translate human-facing first argument (widget labels, alerts, headings).
                     if args and isinstance(args[0], str):
@@ -234,6 +246,27 @@ def _install_polish_interface():
 _install_polish_interface()
 # Default to Polish, but make an English option available for presentations.
 st.sidebar.selectbox("Interface language", ["Polish", "English"], index=0, key="interface_language")
+
+
+def safe_plotly_chart(factory_or_figure, **kwargs):
+    """Create and display a Plotly chart without patching Streamlit internals."""
+    try:
+        figure = factory_or_figure() if callable(factory_or_figure) else factory_or_figure
+        if st.session_state.get("interface_language", "Polish") in ("Polish", "Polski"):
+            try:
+                if getattr(figure.layout, "title", None) and figure.layout.title.text:
+                    figure.layout.title.text = _translate_text(figure.layout.title.text)
+                for axis_name in ("xaxis", "yaxis", "legend"):
+                    axis = getattr(figure.layout, axis_name, None)
+                    if axis is not None and getattr(axis, "title", None) and getattr(axis.title, "text", None):
+                        axis.title.text = _translate_text(axis.title.text)
+            except Exception:
+                pass
+        st.plotly_chart(figure, **kwargs)
+    except Exception as exc:
+        msg_pl = f"Nie udało się wyświetlić wykresu ({type(exc).__name__}): {exc}"
+        msg_en = f"This chart could not be displayed ({type(exc).__name__}): {exc}"
+        st.warning(msg_pl if st.session_state.get("interface_language", "Polish") in ("Polish", "Polski") else msg_en)
 
 st.markdown("""
 <style>
@@ -322,7 +355,7 @@ def show_db_error(e):
     st.error(f"Database error [{code or 'unknown'}]: {msg}")
     for k, hint in HINTS.items():
         if code == k or (not code and k in msg):
-            st.info(hint)
+            st.info(_translate_text(hint))
             break
 
 def db_insert(table, rows, chunk=900):
@@ -1193,7 +1226,7 @@ with tab4:
                 try:
                     fig = px.line(tdf, x="slice", y="per_million", color="term", markers=True,
                                   title=f"Frequency per million words ({gran.lower()}ly)")
-                    st.plotly_chart(fig, use_container_width=True)
+                    safe_plotly_chart(fig, use_container_width=True)
                 except (ValueError, TypeError, KeyError) as e:
                     st.warning(f"Could not draw the trend chart for this selection: {e}. The frequency table below remains available.")
                 st.dataframe(tdf.pivot(index="slice", columns="term", values="count").fillna(0), use_container_width=True)
@@ -1203,7 +1236,7 @@ with tab4:
         freq_df = pd.DataFrame(freq_df_all.most_common(n_show), columns=[f_mode.capitalize(), "Frequency"])
         freq_df["Rel. freq (per 1M)"] = (freq_df["Frequency"] / total_tokens * 1e6).round(1) if total_tokens else 0
         if total_tokens:
-            st.plotly_chart(px.bar(freq_df.head(20), x=f_mode.capitalize(), y="Frequency", color="Frequency", color_continuous_scale="Blues", title=f"Most frequent {f_mode}s"), use_container_width=True)
+            safe_plotly_chart(lambda: px.bar(freq_df.head(20), x=f_mode.capitalize(), y="Frequency", color="Frequency", color_continuous_scale="Blues", title=f"Most frequent {f_mode}s"), use_container_width=True)
         st.dataframe(freq_df, use_container_width=True, hide_index=True)
         st.download_button("Download full frequency list (CSV)", pd.DataFrame(freq_df_all.most_common(), columns=[f_mode, "freq"]).to_csv(index=False), file_name="frequencies.csv", mime="text/csv")
 # ============================================================
@@ -1341,8 +1374,7 @@ with tab6:
             top10 = [w for w, _ in top_coll.most_common(10)]
             if top10 and sl:
                 hm = pd.DataFrame({s: {w: drift_data[s].get(w, 0) for w in top10} for s in sl})
-                fig = px.imshow(hm, text_auto=True, aspect="auto", title=f"Collocates of '{drift_word}' across time slices")
-                st.plotly_chart(fig, use_container_width=True)
+                safe_plotly_chart(lambda: px.imshow(hm, text_auto=True, aspect="auto", title=f"Collocates of '{drift_word}' across time slices"), use_container_width=True)
             else:
                 st.info(f"No collocates found for '{drift_word}' in this corpus. Check the spelling (the search is case-sensitive and matches the stored lowercase form).")
 
@@ -1370,7 +1402,7 @@ with tab7:
         shown = ang_counts[ang_counts["Count in corpus"] > 0]
         st.markdown(f"#### {len(shown)} anglicisms found in this corpus")
         if not shown.empty:
-            st.plotly_chart(px.bar(shown.head(20), x="Term", y="Count in corpus", color="Domain", title="Anglicisms by frequency"), use_container_width=True)
+            safe_plotly_chart(lambda: px.bar(shown.head(20), x="Term", y="Count in corpus", color="Domain", title="Anglicisms by frequency"), use_container_width=True)
         else:
             st.info("None of the anglicisms from the list occurs in this corpus yet.")
         st.dataframe(shown, use_container_width=True, hide_index=True)
@@ -1390,7 +1422,7 @@ with tab7:
                 for term in shown.head(5)["Term"]:
                     a_rows.append({"slice": s, "term": term, "per_million": round(series_a[s].get(term, 0) / max(1, sum(series_a[s].values())) * 1e6, 2)})
             if a_rows:
-                st.plotly_chart(px.line(pd.DataFrame(a_rows), x="slice", y="per_million", color="term", markers=True, title="Top anglicisms over time"), use_container_width=True)
+                safe_plotly_chart(lambda: px.line(pd.DataFrame(a_rows), x="slice", y="per_million", color="term", markers=True, title="Top anglicisms over time"), use_container_width=True)
 
 # ============================================================
 # TAB 8: STANCE / SENTIMENT / MODALITY
@@ -1453,7 +1485,7 @@ with tab9:
             lengths = sorted([(t["title"], sum(int(v) for v in (t.get("word_counts") or {}).values())) for t in transcripts], key=lambda x: x[1])
             len_df = pd.DataFrame(lengths, columns=["text", "tokens"])
             if not len_df.empty and len_df["tokens"].sum() > 0:
-                st.plotly_chart(px.barh(len_df, x="tokens", y="text", title="Tokens per text"), use_container_width=True)
+                safe_plotly_chart(lambda: px.barh(len_df, x="tokens", y="text", title="Tokens per text"), use_container_width=True)
             else:
                 st.info("No token counts yet. Upload and index texts first.")
     with c2:
@@ -1485,7 +1517,7 @@ with tab9:
     if pos_total:
         pos_df = pd.DataFrame(pos_total.most_common(), columns=["POS", "Count"])
         if not pos_df.empty and pos_df["Count"].sum() > 0:
-            st.plotly_chart(px.pie(pos_df.head(12), values="Count", names="POS", title="POS distribution"), use_container_width=True)
+            safe_plotly_chart(lambda: px.pie(pos_df.head(12), values="Count", names="POS", title="POS distribution"), use_container_width=True)
 
 st.divider()
 st.caption("Linguistic Corpus Engine v3.0 | Streamlit + spaCy + Supabase. Data persists in the cloud; anyone with the app link can browse, search and analyze. Editing/deleting is available to all viewers; use Supabase RLS if you need to restrict this.")
