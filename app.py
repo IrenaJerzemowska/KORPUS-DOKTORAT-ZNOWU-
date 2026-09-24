@@ -88,6 +88,7 @@ def clear_caches():
 
 HINTS = {
     "42501": "Row-level security rejected the write. Run schema_fix.sql in the Supabase SQL Editor (it re-creates the access policies and grants).",
+    "PGRST204": "A column is missing from a table (usually the table was created earlier with an older definition). Run schema_migrate.sql in the Supabase SQL Editor - it adds all missing columns without deleting data. If the error still shows a column that does exist, reload the API schema: Supabase Dashboard > Settings > API > 'Reload schema' (or wait 1-2 minutes for the cache to refresh).",
     "PGRST205": "A table is missing in the database. Run schema.sql in the Supabase SQL Editor first.",
     "23505": "That name already exists. Choose a different name.",
     "23502": "A required field was empty.",
