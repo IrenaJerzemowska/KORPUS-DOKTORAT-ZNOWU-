@@ -1736,8 +1736,10 @@ with tab10:
                 st.dataframe(spans_df, use_container_width=True, hide_index=True)
                 st.download_button(_translate_text("Download annotation spans (CSV)"), spans_df.to_csv(index=False),
                                    file_name="annotation_spans.csv", mime="text/csv")
-                st.download_button(_translate_text("Download annotated Word document"), annotation_docx_bytes(annotation_text, spans, selected_transcript["title"]),
-                                   file_name=f"{re.sub(r'[^\w-]+', '_', selected_transcript['title'])}_annotated.docx",
+                safe_title = re.sub(r"[^\w-]+", "_", selected_transcript["title"])
+                annotated_docx = annotation_docx_bytes(annotation_text, spans, selected_transcript["title"])
+                st.download_button(_translate_text("Download annotated Word document"), annotated_docx,
+                                   file_name=f"{safe_title}_annotated.docx",
                                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 st.divider()
