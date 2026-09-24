@@ -1,9 +1,8 @@
 import streamlit as st
 import pandas as pd
 import re
-import math
 import plotly.express as px
-import nltk
+import spacy
 from supabase import create_client, Client
 
 # --- 1. CONFIGURATION & DATABASE CONNECTION ---
@@ -25,14 +24,31 @@ def init_supabase() -> Client:
         st.stop()
 
 @st.cache_resource
-def setup_nltk():
+def load_spacy_model(lang_code: str):
+    """Load spaCy model based on language code"""
+    model_map = {
+        "pl": "pl_core_news_sm",
+        "en": "en_core_web_sm",
+        "zh": "zh_core_web_sm",
+    }
+    
+    model_name = model_map.get(lang_code, "en_core_web_sm")
+    
     try:
-        nltk.download('punkt', quiet=True)
-        nltk.download('averaged_perceptron_tagger', quiet=True)
-    except Exception as e:
-        st.warning(f"NLTK setup warning (non-critical): {e}")
+        # Try to load the model
+        nlp = spacy.load(model_name)
+        return nlp
+    except OSError:
+        st.warning(f"⚠️ Model '{model_name}' not found. Downloading...")
+        try:
+            import subprocess
+            subprocess.run([f"python -m spacy download {model_name}"], shell=True, check=True)
+            nlp = spacy.load(model_name)
+            return nlp
+        except Exception as e:
+            st.error(f"❌ Failed to load spaCy model: {e}")
+            st.stop()
 
-setup_nltk()
 supabase = init_supabase()
 
 # --- 2. TEXT CLEANER AND NORMALIZER ---
@@ -42,27 +58,20 @@ def clean_and_normalize(text: str) -> str:
     text = re.sub(r'\s+', ' ', text).strip()
     return text
 
-def simple_tokenize_and_pos(text: str, lang: str):
-    """Tokenize and assign basic POS tags"""
-    words = re.findall(r'\b\w+\b', text.lower())
-    tokens = []
+def tokenize_and_pos_spacy(text: str, lang: str):
+    """Tokenize and assign POS tags using spaCy"""
+    nlp = load_spacy_model(lang)
+    doc = nlp(text)
     
-    for i, w in enumerate(words):
-        pos = "NOUN"
-        
-        # Simple heuristic-based POS tagging
-        if w.endswith(('ać', 'ić', 'yć', 'ing', 'ed', 'ate', 'ize')):
-            pos = "VERB"
-        elif w.endswith(('ny', 'wy', 'ki', 'ful', 'ive', 'ous', 'ble')):
-            pos = "ADJ"
-        elif w.endswith(('nie', 'wo', 'ly', 'ally')):
-            pos = "ADV"
-        
+    tokens = []
+    for i, token in enumerate(doc):
         tokens.append({
             "token_index": i,
-            "word": w,
-            "lemma": w,
-            "pos": pos,
+            "word": token.text,
+            "lemma": token.lemma_,
+            "pos": token.pos_,
+            "tag": token.tag_,
+            "dep": token.dep_,
             "timestamp_start": 0.0
         })
     
@@ -79,7 +88,7 @@ def get_corpora():
         return pd.DataFrame()
 
 def save_transcript(corpus_id, title, lang, video_url, pub_date, gender, role, reg, raw_text):
-    """Clean, tokenize, and save transcript to Supabase"""
+    """Clean, tokenize with spaCy, and save transcript to Supabase"""
     try:
         clean_txt = clean_and_normalize(raw_text)
         
@@ -102,7 +111,10 @@ def save_transcript(corpus_id, title, lang, video_url, pub_date, gender, role, r
             return
         
         t_id = res.data[0]['id']
-        token_records = simple_tokenize_and_pos(clean_txt, lang)
+        
+        # Tokenize with spaCy
+        with st.spinner(f"🔬 Tokenizing with spaCy ({lang})..."):
+            token_records = tokenize_and_pos_spacy(clean_txt, lang)
         
         # Add transcript_id and corpus_id to tokens
         for tok in token_records:
@@ -153,7 +165,7 @@ if menu == "Dashboard & Upload":
         st.subheader("Upload Transcriptions")
         with st.form("upload_form"):
             title = st.text_input("Transcript Title", value="")
-            lang = st.selectbox("Language", ["pl", "en"])
+            lang = st.selectbox("Language", ["pl", "en", "zh"])
             video_url = st.text_input("YouTube Video URL", value="")
             pub_date = st.date_input("Publication Date")
             gender = st.selectbox("Speaker Gender", ["Female", "Male", "Multiple", "Unknown"])
@@ -280,14 +292,14 @@ elif menu == "Regex & POS Search":
     
     c1, c2 = st.columns(2)
     with c1:
-        regex_pattern = st.text_input("Regex Search Pattern", r"\b[A-Za-z]+acja\b")
+        regex_pattern = st.text_input("Regex Search Pattern (word)", r"\b[A-Za-z]+acja\b")
     with c2:
-        pos_pattern = st.selectbox("POS Filter", ["ANY", "NOUN", "VERB", "ADJ", "ADV"])
+        pos_pattern = st.selectbox("POS Filter", ["ANY", "NOUN", "VERB", "ADJ", "ADV", "ADP", "CCONJ", "SCONJ", "PROPN"])
     
     if st.button("Execute Pattern Search"):
         try:
             tokens_res = supabase.table("tokens").select(
-                "word, lemma, pos"
+                "word, lemma, pos, tag"
             ).eq("corpus_id", selected_corpus_id).execute()
             
             tdf = pd.DataFrame(tokens_res.data) if tokens_res.data else pd.DataFrame()
@@ -320,7 +332,7 @@ elif menu == "Keyness & Anglicism Tracker":
     
     if st.button("Spot Loanwords"):
         try:
-            t_data = supabase.table("tokens").select("lemma").eq("corpus_id", selected_corpus_id).execute()
+            t_data = supabase.table("tokens").select("lemma, pos").eq("corpus_id", selected_corpus_id).execute()
             target_df = pd.DataFrame(t_data.data) if t_data.data else pd.DataFrame()
             
             if not target_df.empty:
